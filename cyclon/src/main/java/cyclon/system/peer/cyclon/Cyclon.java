@@ -18,12 +18,14 @@ import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timer;
 
 import cyclon.simulator.snapshot.Snapshot;
+import java.util.List;
 
 public final class Cyclon extends ComponentDefinition {
 
 	Negative<CyclonPort> cyclonPort = negative(CyclonPort.class);
 	Negative<CyclonPartnersPort> partnersPort = negative(CyclonPartnersPort.class);
 	Negative<CyclonSamplePort> samplePort = negative(CyclonSamplePort.class);
+    Positive<CyclonSamplePort> samplePortRequest = positive(CyclonSamplePort.class);
 	Positive<Network> networkPort = positive(Network.class);
 	Positive<Timer> timerPort = positive(Timer.class);
 
@@ -42,13 +44,23 @@ public final class Cyclon extends ComponentDefinition {
 
 		subscribe(handleInit, control);
 		subscribe(handleJoin, cyclonPort);
+        subscribe(handleCyclonSampleRequest, samplePortRequest);
 		subscribe(handleInitiateShuffle, timerPort);
 		subscribe(handleShuffleTimeout, timerPort);
 		subscribe(handleShuffleRequest, networkPort);
 		subscribe(handleShuffleResponse, networkPort);
 		subscribe(handlePartnersRequest, partnersPort);
 	}
-
+//-------------------------------------------------------------------
+    Handler<CyclonSampleRequest> handleCyclonSampleRequest = new Handler<CyclonSampleRequest>() {
+        @Override
+		public void handle(CyclonSampleRequest request) {
+            List<PeerAddress> cacheRandomPeer = cache.getRandomPeers(1);
+            if(cacheRandomPeer.size() > 0) {
+                trigger(new CyclonSampleResponse(cacheRandomPeer.get(0)), samplePort);
+            }
+		}
+	};
 //-------------------------------------------------------------------	
 	Handler<CyclonInit> handleInit = new Handler<CyclonInit>() {
 		public void handle(CyclonInit init) {
@@ -58,7 +70,6 @@ public final class Cyclon extends ComponentDefinition {
 			shuffleTimeout = cyclonConfiguration.getShuffleTimeout();
 		}
 	};
-
 //-------------------------------------------------------------------	
 	/**
 	 * handles a request to join a Cyclon network using a set of introducer

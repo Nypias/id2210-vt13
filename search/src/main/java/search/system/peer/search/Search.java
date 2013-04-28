@@ -1,13 +1,12 @@
 package search.system.peer.search;
 
-import search.simulator.snapshot.Snapshot;
 import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
-import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
+import cyclon.system.peer.cyclon.CyclonSampleRequest;
+import cyclon.system.peer.cyclon.CyclonSampleResponse;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Random;
 import java.util.logging.Level;
@@ -31,7 +30,6 @@ import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.Version;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import se.sics.kompics.ComponentDefinition;
 import se.sics.kompics.Handler;
 import se.sics.kompics.Negative;
@@ -42,6 +40,7 @@ import se.sics.kompics.timer.Timer;
 import se.sics.kompics.web.Web;
 import se.sics.kompics.web.WebRequest;
 import se.sics.kompics.web.WebResponse;
+import search.simulator.snapshot.Snapshot;
 import search.system.peer.AddIndexText;
 import search.system.peer.IndexPort;
 import tman.system.peer.tman.TManSample;
@@ -59,6 +58,7 @@ public final class Search extends ComponentDefinition {
     Positive<Timer> timerPort = positive(Timer.class);
     Negative<Web> webPort = negative(Web.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
+    Negative<CyclonSamplePort> cyclonSamplePortRequest = negative(CyclonSamplePort.class);
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
 
     ArrayList<PeerAddress> neighbours = new ArrayList<PeerAddress>();
@@ -77,7 +77,9 @@ public final class Search extends ComponentDefinition {
     
 //-------------------------------------------------------------------	
     public Search() {
-
+        subscribe(handleUpdateIndexTimeout, timerPort);
+        subscribe(handleIndexUpdateRequest, networkPort);
+        subscribe(handleIndexUpdateResponse, networkPort);
         subscribe(handleInit, control);
         subscribe(handleWebRequest, webPort);
         subscribe(handleCyclonSample, cyclonSamplePort);
@@ -91,16 +93,17 @@ public final class Search extends ComponentDefinition {
             num = init.getNum();
             searchConfiguration = init.getConfiguration();
             period = searchConfiguration.getPeriod();
-
+            
             SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
             rst.setTimeoutEvent(new UpdateIndexTimeout(rst));
             trigger(rst, timerPort);
 
             Snapshot.updateNum(self, num);
             try {
-                String title = "The Art of Computer Science";
                 String id = "100";
-                addEntry(title,id);
+                String title = "The Art of Computer Science";
+                String magnet = "5f601f38e6bd666763da8ebad157879b230f2d5c";
+                addEntry(id, title, magnet);
             } catch (IOException ex) {
                 java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
                 System.exit(-1);
@@ -108,6 +111,36 @@ public final class Search extends ComponentDefinition {
         }
     };
 
+    Handler<UpdateIndexTimeout> handleUpdateIndexTimeout = new Handler<UpdateIndexTimeout>() {
+        @Override
+        public void handle(UpdateIndexTimeout event) {
+            trigger(new CyclonSampleRequest(), cyclonSamplePortRequest);
+        }
+    };
+    
+    Handler<CyclonSampleResponse> handleCyclonSample = new Handler<CyclonSampleResponse>() {
+        @Override
+        public void handle(CyclonSampleResponse event) {
+            PeerAddress peer = event.getRandomPeer();
+            IndexUpdateRequest iur = new IndexUpdateRequest(self, peer);
+            trigger(iur, networkPort);
+        }
+    };
+    
+    Handler<IndexUpdateRequest> handleIndexUpdateRequest = new Handler<IndexUpdateRequest>() {
+        @Override
+        public void handle(IndexUpdateRequest request) {
+            IndexUpdateResponse iur = new IndexUpdateResponse(self, request.getPeerSource());
+            trigger(iur, networkPort);
+        }
+    };
+    
+    Handler<IndexUpdateResponse> handleIndexUpdateResponse = new Handler<IndexUpdateResponse>() {
+        @Override
+        public void handle(IndexUpdateResponse response) {
+            
+        }
+    };
 
     Handler<WebRequest> handleWebRequest = new Handler<WebRequest>() {
         public void handle(WebRequest event) {
@@ -122,7 +155,7 @@ public final class Search extends ComponentDefinition {
             if (args[0].compareToIgnoreCase("search") == 0) {
                 response = new WebResponse(searchPageHtml(args[1]), event, 1, 1);
             } else if (args[0].compareToIgnoreCase("add") == 0) {
-                response = new WebResponse(addEntryHtml(args[1], args[2]), event, 1, 1);
+                response = new WebResponse(addEntryHtml(args[1], args[2], args[3]), event, 1, 1);
             } else {
                 response = new WebResponse(searchPageHtml(event
                         .getTarget()), event, 1, 1);
@@ -155,7 +188,7 @@ public final class Search extends ComponentDefinition {
         return sb.toString();
     }
 
-    private String addEntryHtml(String title, String id) {
+    private String addEntryHtml(String id, String title, String magnetLink) {
         StringBuilder sb = new StringBuilder("<!DOCTYPE html PUBLIC \"-//W3C");
         sb.append("//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR");
         sb.append("/xhtml1/DTD/xhtml1-transitional.dtd\"><html xmlns=\"http:");
@@ -167,7 +200,7 @@ public final class Search extends ComponentDefinition {
         sb.append("</head><body><h2 align=\"center\" class=\"style2\">");
         sb.append("ID2210 Uploaded Entry</h2><br>");
         try {
-            addEntry(title, id);
+            addEntry(id, title, magnetLink);
             sb.append("Entry: ").append(title).append(" - ").append(id);
         } catch (IOException ex) {
             sb.append(ex.getMessage());
@@ -177,14 +210,15 @@ public final class Search extends ComponentDefinition {
         return sb.toString();
     }
 
-    private void addEntry(String title, String id) throws IOException {
+    private void addEntry(String id, String title, String magnetLink) throws IOException {
         IndexWriter w = new IndexWriter(index, config);
         Document doc = new Document();
-        doc.add(new TextField("title", title, Field.Store.YES));
         // You may need to make the StringField searchable by NumericRangeQuery. See:
         // http://stackoverflow.com/questions/13958431/lucene-4-0-indexwriter-updatedocument-for-numeric-term
         // http://lucene.apache.org/core/4_2_0/core/org/apache/lucene/document/IntField.html
         doc.add(new StringField("id", id, Field.Store.YES));
+        doc.add(new TextField("title", title, Field.Store.YES));
+        doc.add(new StringField("magnet", magnetLink, Field.Store.YES));
         w.addDocument(doc);
         w.close();
 
@@ -224,7 +258,10 @@ public final class Search extends ComponentDefinition {
         for (int i = 0; i < hits.length; ++i) {
             int docId = hits[i].doc;
             Document d = searcher.doc(docId);
-            sb.append("<li>").append(i + 1).append(". ").append(d.get("id")).append("\t").append(d.get("title")).append("</li>");
+            sb.append("<li>").append(i + 1).append(". [")
+                             .append(d.get("id")).append("] ")
+                             .append(d.get("title")).append(" (<a href=\"magnet:?xt=urn:btih:")
+                             .append(d.get("magnet")).append("\">Download!</a>)</li>");
         }
         sb.append("</ul>");
 
@@ -233,15 +270,6 @@ public final class Search extends ComponentDefinition {
         reader.close();
         return sb.toString();
     }
-    
-    Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
-        @Override
-        public void handle(CyclonSample event) {
-            // receive a new list of neighbours
-            neighbours = event.getSample();
-            // Pick a node or more, and exchange index with them
-        }
-    };
     
     Handler<TManSample> handleTManSample = new Handler<TManSample>() {
         @Override
@@ -256,12 +284,10 @@ public final class Search extends ComponentDefinition {
     Handler<AddIndexText> handleAddIndexText = new Handler<AddIndexText>() {
         @Override
         public void handle(AddIndexText event) {
-            Random r = new Random(System.currentTimeMillis());
-            String id = Integer.toString(r.nextInt(100000));
-            logger.info(self.getPeerAddress().getId() 
-                    + " - adding index entry: {}-{}", event.getText(), id);
+            String id = String.valueOf(event.getID());
+            logger.info("[" + self.getPeerAddress().getId() + "] Adding index entry " + id + "::" + event.getText() + " (" + event.getMagnetLink() + ")!");
             try {
-                addEntry(event.getText(), id);
+                addEntry(id, event.getText(), event.getMagnetLink());
             } catch (IOException ex) {
                 java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
                 throw new IllegalArgumentException(ex.getMessage());

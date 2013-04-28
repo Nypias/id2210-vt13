@@ -51,6 +51,7 @@ public final class SearchSimulator extends ComponentDefinition {
     private CyclonConfiguration cyclonConfiguration;
     private SearchConfiguration searchConfiguration;
     private int peerIdSequence;
+    private int monotonicID = 0;
     private BigInteger identifierSpaceSize;
     private ConsistentHashtable<BigInteger> ringNodes;
     private AsIpGenerator ipGenerator = AsIpGenerator.getInstance(125);
@@ -59,6 +60,11 @@ public final class SearchSimulator extends ComponentDefinition {
     static String[] verbs = {"fires ", "walks ", "talks ", "types ", "programs "};
     static String[] subjects = {"computer ", "Lucene ", "torrent "};
     static String[] objects = {"computer", "java", "video"};
+    static String[] magnetLink = {"b03c8641415d3a0fc7077f5bf567634442989a74", "a896f7155237fb27e2eaa06033b5796d7ae84a1d",
+                                   "3ebb7aa97076cac0ac1b0812f5e16cf46d5daf41", "9823e8059552f26bc72f301d5417a2eb8c7db20b",
+                                   "bfc022fc0b977fbc6c59e54ab9d206a66f3eea68", "165c14e9aa637b2157d9ee3fc3050d9afc652e40",
+                                   "4c316fd383a7ef1fbc389cf0755cbf9434a39f7c", "a2196ef379c39e524ff7868a72ad1d8fa54a7a4b",
+                                   "29bb0c30991e4490acdec056045dd19acb34b194", "f502f11df1c29b5ca8e5c2fa50abcbf59b1d274f"};
     Random r = new Random(System.currentTimeMillis());
     
     
@@ -115,7 +121,7 @@ public final class SearchSimulator extends ComponentDefinition {
             BigInteger successor = ringNodes.getNode(event.getId());
             Component peer = peers.get(successor);
             
-            trigger(new AddIndexText(randomText()), peer.getNegative(IndexPort.class));
+            trigger(new AddIndexText(monotonicID++, randomText(), magnetLink[r.nextInt(10)]), peer.getNegative(IndexPort.class));
         }
     };
 //-------------------------------------------------------------------	
