@@ -13,6 +13,7 @@ import java.util.logging.Level;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.IntField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.DirectoryReader;
@@ -22,6 +23,7 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.NumericRangeQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopScoreDocCollector;
@@ -99,21 +101,22 @@ public final class Search extends ComponentDefinition {
             trigger(rst, timerPort);
 
             Snapshot.updateNum(self, num);
-            try {
-                String id = "100";
-                String title = "The Art of Computer Science";
-                String magnet = "5f601f38e6bd666763da8ebad157879b230f2d5c";
-                addEntry(id, title, magnet);
-            } catch (IOException ex) {
-                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-                System.exit(-1);
-            }
+//            try {
+//                String id = "100";
+//                String title = "The Art of Computer Science";
+//                String magnet = "5f601f38e6bd666763da8ebad157879b230f2d5c";
+//                addEntry(id, title, magnet);
+//            } catch (IOException ex) {
+//                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+//                System.exit(-1);
+//            }
         }
     };
 
     Handler<UpdateIndexTimeout> handleUpdateIndexTimeout = new Handler<UpdateIndexTimeout>() {
         @Override
         public void handle(UpdateIndexTimeout event) {
+            System.err.println("[" + self.getPeerAddress().getId() + "] UpdateIndexTimeout");
             trigger(new CyclonSampleRequest(), cyclonSamplePortRequest);
         }
     };
@@ -121,8 +124,15 @@ public final class Search extends ComponentDefinition {
     Handler<CyclonSampleResponse> handleCyclonSample = new Handler<CyclonSampleResponse>() {
         @Override
         public void handle(CyclonSampleResponse event) {
+            System.err.println("[" + self.getPeerAddress().getId() + "] CyclonSampleResponse (" + indexStore.size() + ")");
             PeerAddress peer = event.getRandomPeer();
-            IndexUpdateRequest iur = new IndexUpdateRequest(self, peer);
+            ArrayList<Range> missingRanges = getMissingRanges();
+            Integer lastExisting = (indexStore.isEmpty())?0:indexStore.get(indexStore.size() - 1);
+            System.out.println("============================================================");
+            System.out.println("[DEBUG::" + self.getPeerAddress().getId() + "->" + peer.getPeerAddress().getId() + "] I need " + missingRanges.size() + " ranges and my maximum ID is " + lastExisting + "!");
+            System.out.println(missingRanges);
+            System.out.println("============================================================");
+            IndexUpdateRequest iur = new IndexUpdateRequest(self, peer, missingRanges, lastExisting);
             trigger(iur, networkPort);
         }
     };
@@ -130,15 +140,35 @@ public final class Search extends ComponentDefinition {
     Handler<IndexUpdateRequest> handleIndexUpdateRequest = new Handler<IndexUpdateRequest>() {
         @Override
         public void handle(IndexUpdateRequest request) {
-            IndexUpdateResponse iur = new IndexUpdateResponse(self, request.getPeerSource());
-            trigger(iur, networkPort);
+            try {
+                System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateRequest");
+                ArrayList<Entry> missingEntries = getMissingEntries(request.getMissingRanges(), request.getLastExisting());
+                System.out.println("============================================================");
+                System.out.println("[DEBUG::" + self.getPeerAddress().getId() +"->" + request.getPeerSource().getPeerAddress().getId() + "] I have these entries:");
+                System.out.println(missingEntries);
+                System.out.println("============================================================");
+                IndexUpdateResponse iur = new IndexUpdateResponse(self, request.getPeerSource(), missingEntries);
+                trigger(iur, networkPort);
+            }
+            catch (IOException ex) {
+                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            
         }
     };
-    
-    Handler<IndexUpdateResponse> handleIndexUpdateResponse = new Handler<IndexUpdateResponse>() {
+    Handler<IndexUpdateResponse> handleIndexUpdateResponse = new Handler<IndexUpdateResponse>()
+    {
         @Override
         public void handle(IndexUpdateResponse response) {
-            
+            try {
+                for (Entry entry : response.getEntries()) {
+                    addEntry(entry.getId(), entry.getTitle(), entry.getMagnetLink());
+                }
+            }
+            catch (IOException ex) {
+                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateResponse (" + indexStore.size() + ")");
         }
     };
 
@@ -147,7 +177,7 @@ public final class Search extends ComponentDefinition {
             if (event.getDestination() != self.getPeerAddress().getId()) {
                 return;
             }
-
+            
             String[] args = event.getTarget().split("-");
 
             logger.debug("Handling Webpage Request");
@@ -168,8 +198,51 @@ public final class Search extends ComponentDefinition {
         }
     };
     
+    private ArrayList<Range> getMissingRanges() {
+        ArrayList<Range> missing = new ArrayList<Range>();
+        int lowLimit = -1;
+        for(int i = 0; i < indexStore.size(); i++) {
+            if(indexStore.get(i) > (lowLimit + 1)) {
+                missing.add(new Range(lowLimit + 1, indexStore.get(i) - 1));
+            }
+            lowLimit = indexStore.get(i);
+        }
+        return missing;
+    }
+    
+    private ArrayList<Entry> getMissingEntries(ArrayList<Range> missingRanges, int lastExisting) throws IOException {
+        ArrayList<Entry> entries = new ArrayList<Entry>();
+        IndexSearcher searcher = null;
+        IndexReader reader = null;
+        try {
+            reader = DirectoryReader.open(index);
+            searcher = new IndexSearcher(reader);
+
+            // Add a range to cover for the missing entries after the last existing entry.
+            missingRanges.add(new Range(lastExisting + 1, indexStore.get(indexStore.size() - 1)));
+
+            // Get the entries of the missing ranges.
+            for (Range range : missingRanges) {
+                Query query = NumericRangeQuery.newIntRange("id", range.getLeft(), range.getRight(), true, true);
+                TopScoreDocCollector collector = TopScoreDocCollector.create(range.getSize(), true);
+                searcher.search(query, collector);
+                ScoreDoc[] hits = collector.topDocs().scoreDocs;
+                for (int i = 0; i < hits.length; ++i) {
+                    int docId = hits[i].doc;
+                    Document d = searcher.doc(docId);
+                    entries.add(new Entry(d.get("id"), d.get("title"), d.get("magnet")));                    
+                }
+            }
+        }
+        catch (IOException ex) {
+            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        reader.close();
+        return entries;
+    }
+    
     private String jollyRogerHTML() {
-        String jollyRoger = "<!DOCTYPE html><html><head>	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />	<title>Jolly Roger</title>		<!-- CSS Styles -->	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/base.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/layout.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/module.css\" type=\"text/css\"/>    	<!-- JavaScript Libraries -->    <script src=\"//ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js\" type=\"text/javascript\"></script>    <script type=\"text/javascript\" src=\"http://127.0.0.1/JollyRoger/js/jolly-lib.js\"></script>		<script>        var SEARCH_LINK = \"http://192.168.56.1:9999/\";		$(document).ready(function(e) {			$(\"#searchSubmit\").click(function(event) {                if($(\"#searchText\").val().length > 0) {                    var searchUrl = SEARCH_LINK + $(\"#searchPeer\").val() + \"/jrsearch-\" + $(\"#searchText\").val();                    searchAndRender(searchUrl, $(\".searchResults\"));                }                else {                    alert(\"Arrrrgh! Enter a search term!\");                }			});		});	</script></head><body>	<div class=\"website\">        <header>            <section class=\"headerContent\">            	<div class=\"logo\" />            </section>        </header>                <section class=\"search\">            <section class=\"searchBar\">            	<form action=\"#\">            		<input id=\"searchText\" type=\"text\" />                    <input id=\"searchPeer\" type=\"text\" />            		<input id=\"searchSubmit\" type=\"submit\" value=\"Search\" />            	</form>            </section>                        <section class=\"searchResultsContainer\">                <ul class=\"searchResults\">                	<li class=\"searchResultItem\">                		<div class=\"srIcon\"></div>                		<div class=\"srTitle\"><a href=\"#\">Torrent Title</a></div>                	</li>                	<li class=\"searchResultItem\">                		<div class=\"srIcon\"></div>                		<div class=\"srTitle\"><a href=\"#\">Torrent Title</a></div>                	</li>                	<li class=\"searchResultItem\">                		<div class=\"srIcon\"></div>                		<div class=\"srTitle\"><a href=\"#\">Torrent Title</a></div>                	</li>                </ul>            </section>	        </section>                <!-- <footer>        	<div class=\"team\">	        	<div class=\"participant\">	            	<span>Thomas Fattal</span><br />	            	<span>tfattal@kth.se</span>	            </div>	            <div class=\"participant\">	            	<span>George Kallergis</span><br />	            	<span>geokal@kth.se</span>	            </div>	        </div>        </footer> -->    </div></body></html>";
+        String jollyRoger = "<!DOCTYPE html><html><head>	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />	<title>Jolly Roger</title>		<!-- CSS Styles -->	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/base.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/layout.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/module.css\" type=\"text/css\"/>    	<!-- JavaScript Libraries -->    <script src=\"//ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js\" type=\"text/javascript\"></script>    <script type=\"text/javascript\" src=\"http://127.0.0.1/JollyRoger/js/jolly-lib.js\"></script>		<script>        var SEARCH_LINK = \"http://192.168.56.1:9999/\";		$(document).ready(function(e) {			$(\"#searchSubmit\").click(function(event) {                if($(\"#searchText\").val().length > 0) {                    var searchUrl = SEARCH_LINK + $(\"#searchPeer\").val() + \"/jrsearch-\" + $(\"#searchText\").val();                    searchAndRender(searchUrl, $(\".searchResults\"));                }                else {                    alert(\"Arrrrgh! Enter a search term!\");                }			});		});	</script></head><body>	<div class=\"website\">        <header>            <section class=\"headerContent\">            	<div class=\"logo\" />            </section>        </header>                <section class=\"search\">            <section class=\"searchBar\">            	<form action=\"#\">            		<input id=\"searchText\" type=\"text\" />                    <input id=\"searchPeer\" type=\"text\" />            		<input id=\"searchSubmit\" type=\"submit\" value=\"Search\" />            	</form>            </section>                        <section class=\"searchResultsContainer\">                <ul class=\"searchResults\">                	<img src=\"http://127.0.0.1/JollyRoger/img/no-torrents.png\" class=\"noresult\" alt=\"No results\" />                </ul>            </section>	        </section>                <!-- <footer>        	<div class=\"team\">	        	<div class=\"participant\">	            	<span>Thomas Fattal</span><br />	            	<span>tfattal@kth.se</span>	            </div>	            <div class=\"participant\">	            	<span>George Kallergis</span><br />	            	<span>geokal@kth.se</span>	            </div>	        </div>        </footer> -->    </div></body></html>";
         return jollyRoger;
     }
 
@@ -201,7 +274,7 @@ public final class Search extends ComponentDefinition {
             System.exit(-1);
         }
 
-        int hitsPerPage = 10;
+        int hitsPerPage = 1000;
         TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
 
         searcher.search(q, collector);
@@ -270,25 +343,27 @@ public final class Search extends ComponentDefinition {
     }
 
     private void addEntry(String id, String title, String magnetLink) throws IOException {
-        IndexWriter w = new IndexWriter(index, config);
-        Document doc = new Document();
-        // You may need to make the StringField searchable by NumericRangeQuery. See:
-        // http://stackoverflow.com/questions/13958431/lucene-4-0-indexwriter-updatedocument-for-numeric-term
-        // http://lucene.apache.org/core/4_2_0/core/org/apache/lucene/document/IntField.html
-        doc.add(new StringField("id", id, Field.Store.YES));
-        doc.add(new TextField("title", title, Field.Store.YES));
-        doc.add(new StringField("magnet", magnetLink, Field.Store.YES));
-        w.addDocument(doc);
-        w.close();
+        if (!indexStore.contains(Integer.parseInt(id))) {
+            IndexWriter w = new IndexWriter(index, config);
+            Document doc = new Document();
+            // You may need to make the StringField searchable by NumericRangeQuery. See:
+            // http://stackoverflow.com/questions/13958431/lucene-4-0-indexwriter-updatedocument-for-numeric-term
+            // http://lucene.apache.org/core/4_2_0/core/org/apache/lucene/document/IntField.html
+            doc.add(new IntField("id", Integer.parseInt(id), Field.Store.YES));
+            doc.add(new TextField("title", title, Field.Store.YES));
+            doc.add(new StringField("magnet", magnetLink, Field.Store.YES));
+            w.addDocument(doc);
+            w.close();
 
 
-        int idVal = Integer.parseInt(id);
-        indexStore.add(idVal);
-        Collections.sort(indexStore);
+            int idVal = Integer.parseInt(id);
+            indexStore.add(idVal);
+            Collections.sort(indexStore);
 
 
-        if (idVal == latestMissingIndexValue + 1) {
-            latestMissingIndexValue++;
+            if (idVal == latestMissingIndexValue + 1) {
+                latestMissingIndexValue++;
+            }
         }
     }
     
@@ -306,7 +381,7 @@ public final class Search extends ComponentDefinition {
             System.exit(-1);
         }
 
-        int hitsPerPage = 10;
+        int hitsPerPage = 2;
         TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
 
         searcher.search(q, collector);
