@@ -127,7 +127,7 @@ public final class Search extends ComponentDefinition {
             System.err.println("[" + self.getPeerAddress().getId() + "] CyclonSampleResponse (" + indexStore.size() + ")");
             PeerAddress peer = event.getRandomPeer();
             ArrayList<Range> missingRanges = getMissingRanges();
-            Integer lastExisting = (indexStore.isEmpty())?0:indexStore.get(indexStore.size() - 1);
+            Integer lastExisting = (indexStore.isEmpty())?-1:indexStore.get(indexStore.size() - 1);
             System.out.println("============================================================");
             System.out.println("[DEBUG::" + self.getPeerAddress().getId() + "->" + peer.getPeerAddress().getId() + "] I need " + missingRanges.size() + " ranges and my maximum ID is " + lastExisting + "!");
             System.out.println(missingRanges);
@@ -142,13 +142,15 @@ public final class Search extends ComponentDefinition {
         public void handle(IndexUpdateRequest request) {
             try {
                 System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateRequest");
-                ArrayList<Entry> missingEntries = getMissingEntries(request.getMissingRanges(), request.getLastExisting());
-                System.out.println("============================================================");
-                System.out.println("[DEBUG::" + self.getPeerAddress().getId() +"->" + request.getPeerSource().getPeerAddress().getId() + "] I have these entries:");
-                System.out.println(missingEntries);
-                System.out.println("============================================================");
-                IndexUpdateResponse iur = new IndexUpdateResponse(self, request.getPeerSource(), missingEntries);
-                trigger(iur, networkPort);
+                if(!indexStore.isEmpty()) {
+                    ArrayList<Entry> missingEntries = getMissingEntries(request.getMissingRanges(), request.getLastExisting());
+                    System.out.println("============================================================");
+                    System.out.println("[DEBUG::" + self.getPeerAddress().getId() + "->" + request.getPeerSource().getPeerAddress().getId() + "] I have these entries:");
+                    System.out.println(missingEntries);
+                    System.out.println("============================================================");
+                    IndexUpdateResponse iur = new IndexUpdateResponse(self, request.getPeerSource(), missingEntries);
+                    trigger(iur, networkPort);
+                }
             }
             catch (IOException ex) {
                 java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
@@ -217,25 +219,24 @@ public final class Search extends ComponentDefinition {
         try {
             reader = DirectoryReader.open(index);
             searcher = new IndexSearcher(reader);
-
-            // Add a range to cover for the missing entries after the last existing entry.
-            missingRanges.add(new Range(lastExisting + 1, indexStore.get(indexStore.size() - 1)));
-
-            // Get the entries of the missing ranges.
-            for (Range range : missingRanges) {
-                Query query = NumericRangeQuery.newIntRange("id", range.getLeft(), range.getRight(), true, true);
-                TopScoreDocCollector collector = TopScoreDocCollector.create(range.getSize(), true);
-                searcher.search(query, collector);
-                ScoreDoc[] hits = collector.topDocs().scoreDocs;
-                for (int i = 0; i < hits.length; ++i) {
-                    int docId = hits[i].doc;
-                    Document d = searcher.doc(docId);
-                    entries.add(new Entry(d.get("id"), d.get("title"), d.get("magnet")));                    
-                }
-            }
         }
         catch (IOException ex) {
             java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        // Add a range to cover for the missing entries after the last existing entry.
+        missingRanges.add(new Range(lastExisting + 1, indexStore.get(indexStore.size() - 1)));
+
+        // Get the entries of the missing ranges.
+        for (Range range : missingRanges) {
+            Query query = NumericRangeQuery.newIntRange("id", range.getLeft(), range.getRight(), true, true);
+            TopScoreDocCollector collector = TopScoreDocCollector.create(range.getSize(), true);
+            searcher.search(query, collector);
+            ScoreDoc[] hits = collector.topDocs().scoreDocs;
+            for (int i = 0; i < hits.length; ++i) {
+                int docId = hits[i].doc;
+                Document d = searcher.doc(docId);
+                entries.add(new Entry(d.get("id"), d.get("title"), d.get("magnet")));                
+            }
         }
         reader.close();
         return entries;
