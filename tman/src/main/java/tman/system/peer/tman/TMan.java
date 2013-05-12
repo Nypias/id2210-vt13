@@ -6,6 +6,7 @@ import java.util.ArrayList;
 
 import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
+import java.util.Collections;
 
 import se.sics.kompics.ComponentDefinition;
 import se.sics.kompics.Handler;
@@ -23,7 +24,6 @@ public final class TMan extends ComponentDefinition {
 
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
-    Negative<CyclonSamplePort> cyclonSamplePortRequest = negative(CyclonSamplePort.class);
     Positive<Network> networkPort = positive(Network.class);
     Positive<Timer> timerPort = positive(Timer.class);
     private long period;
@@ -73,7 +73,7 @@ public final class TMan extends ComponentDefinition {
             Snapshot.updateTManPartners(self, tmanPartners);
 
             // Publish sample to connected components
-            trigger(new TManSample(tmanPartners), tmanPartnersPort);            
+            trigger(new TManSample(tmanPartners), tmanPartnersPort);
         }
     };
 //-------------------------------------------------------------------	
@@ -81,8 +81,36 @@ public final class TMan extends ComponentDefinition {
         @Override
         public void handle(CyclonSample event) {
             ArrayList<PeerAddress> cyclonPartners = event.getSample();
-
-            // merge cyclonPartners into TManPartners
+            System.err.println("=====================================================================================");
+            System.err.println("[TMAN::" + self.getPeerId() + "] Cyclon Partners:" + cyclonPartners);
+            System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners:" + tmanPartners);
+            if (!cyclonPartners.isEmpty()) {
+                PeerAddress randomPeer = null;
+                for (PeerAddress cyclonPeer : cyclonPartners) {
+                    if (!tmanPartners.contains(cyclonPeer)) {
+                        randomPeer = cyclonPeer;
+                        break;
+                    }
+                }
+                System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
+                if (randomPeer != null) {
+                    if (tmanPartners.size() >= 3) {
+                        // Sorting based on preference function to find the least prefered node.
+                        UtilityComparator uc = new UtilityComparator(self);
+                        Collections.sort(tmanPartners, uc);
+                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (sorted):" + tmanPartners);
+                        if (uc.compare(tmanPartners.get(0), randomPeer) == -1) {
+                            tmanPartners.set(0, randomPeer);
+                        }
+                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (swapped):" + tmanPartners);
+                    }
+                    else {
+                        tmanPartners.add(randomPeer);
+                        System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
+                    }
+                }
+            }
+            System.err.println("=====================================================================================");
         }
     };
 //-------------------------------------------------------------------	

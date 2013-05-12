@@ -139,7 +139,7 @@ public final class Cyclon extends ComponentDefinition {
 			
 			if (randomPeer != null) {
 				initiateShuffle(shuffleLength, randomPeer);
-                                trigger(new CyclonSample(getPartners()), samplePort);
+                trigger(new CyclonSample(getPartners()), samplePort);
 			}
 		}
 	};
