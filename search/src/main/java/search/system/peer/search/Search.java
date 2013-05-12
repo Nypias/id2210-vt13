@@ -382,7 +382,7 @@ public final class Search extends ComponentDefinition {
             System.exit(-1);
         }
 
-        int hitsPerPage = 2;
+        int hitsPerPage = 1000;
         TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
 
         searcher.search(q, collector);
