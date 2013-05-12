@@ -96,9 +96,11 @@ public final class Search extends ComponentDefinition {
             searchConfiguration = init.getConfiguration();
             period = searchConfiguration.getPeriod();
             
-            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
-            rst.setTimeoutEvent(new UpdateIndexTimeout(rst));
-            trigger(rst, timerPort);
+            System.err.println("[wdijviuwhbu ] " + searchConfiguration);
+            
+//            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
+//            rst.setTimeoutEvent(new UpdateIndexTimeout(rst));
+//            trigger(rst, timerPort);
 
             Snapshot.updateNum(self, num);
 //            try {

@@ -23,6 +23,7 @@ public final class TMan extends ComponentDefinition {
 
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
+    Negative<CyclonSamplePort> cyclonSamplePortRequest = negative(CyclonSamplePort.class);
     Positive<Network> networkPort = positive(Network.class);
     Positive<Timer> timerPort = positive(Timer.class);
     private long period;
@@ -63,7 +64,6 @@ public final class TMan extends ComponentDefinition {
             SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
             rst.setTimeoutEvent(new TManSchedule(rst));
             trigger(rst, timerPort);
-
         }
     };
 //-------------------------------------------------------------------	

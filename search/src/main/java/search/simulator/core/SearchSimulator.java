@@ -25,6 +25,7 @@ import search.simulator.snapshot.Snapshot;
 import common.configuration.SearchConfiguration;
 import common.configuration.Configuration;
 import common.configuration.CyclonConfiguration;
+import common.configuration.TManConfiguration;
 import common.simulation.AddIndexEntry;
 import common.simulation.ConsistentHashtable;
 import common.simulation.GenerateReport;
@@ -50,6 +51,7 @@ public final class SearchSimulator extends ComponentDefinition {
     private BootstrapConfiguration bootstrapConfiguration;
     private CyclonConfiguration cyclonConfiguration;
     private SearchConfiguration searchConfiguration;
+    private TManConfiguration tmanConfiguration;
     private int peerIdSequence;
     private int monotonicID = 0;
     private BigInteger identifierSpaceSize;
@@ -89,6 +91,7 @@ public final class SearchSimulator extends ComponentDefinition {
             bootstrapConfiguration = init.getBootstrapConfiguration();
             cyclonConfiguration = init.getCyclonConfiguration();
             searchConfiguration = init.getAggregationConfiguration();
+            tmanConfiguration = init.getTmanConfiguration();
 
             identifierSpaceSize = cyclonConfiguration.getIdentifierSpaceSize();
 
@@ -175,7 +178,7 @@ public final class SearchSimulator extends ComponentDefinition {
         connect(timer, peer.getNegative(Timer.class));
         connect(peer.getPositive(Web.class), webIncoming); //, new WebDestinationFilter(peerId));
 
-        trigger(new SearchPeerInit(peerAddress, num, bootstrapConfiguration, cyclonConfiguration, searchConfiguration), peer.getControl());
+        trigger(new SearchPeerInit(peerAddress, num, bootstrapConfiguration, cyclonConfiguration, searchConfiguration, tmanConfiguration), peer.getControl());
 
         trigger(new Start(), peer.getControl());
         peers.put(id, peer);

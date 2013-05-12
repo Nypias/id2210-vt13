@@ -25,9 +25,11 @@ import search.system.peer.search.Search;
 import search.system.peer.search.SearchInit;
 import common.configuration.SearchConfiguration;
 import common.configuration.CyclonConfiguration;
+import common.configuration.TManConfiguration;
 import cyclon.system.peer.cyclon.*;
 import se.sics.kompics.web.Web;
 import tman.system.peer.tman.TMan;
+import tman.system.peer.tman.TManInit;
 import tman.system.peer.tman.TManSamplePort;
 
 
@@ -46,6 +48,7 @@ public final class SearchPeer extends ComponentDefinition {
 	private int bootstrapRequestPeerCount;
 	private boolean bootstrapped;
 	private SearchConfiguration aggregationConfiguration;
+    private TManConfiguration tmanConfiguration;
 
 //-------------------------------------------------------------------	
 	public SearchPeer() {
@@ -63,12 +66,14 @@ public final class SearchPeer extends ComponentDefinition {
 		connect(timer, bootstrap.getNegative(Timer.class));
 		connect(timer, tman.getNegative(Timer.class));
 		connect(webPort, search.getPositive(Web.class));
-		connect(cyclon.getPositive(CyclonSamplePort.class), 
-                        search.getNegative(CyclonSamplePort.class));
-        connect(search.getPositive(CyclonSamplePort.class),
-                        cyclon.getNegative(CyclonSamplePort.class));
+//		connect(cyclon.getPositive(CyclonSamplePort.class), 
+//                        search.getNegative(CyclonSamplePort.class));
+//        connect(search.getPositive(CyclonSamplePort.class),
+//                        cyclon.getNegative(CyclonSamplePort.class));
 		connect(cyclon.getPositive(CyclonSamplePort.class), 
                         tman.getNegative(CyclonSamplePort.class));
+        connect(tman.getPositive(CyclonSamplePort.class), 
+                        cyclon.getNegative(CyclonSamplePort.class));
 		connect(tman.getPositive(TManSamplePort.class), 
                         search.getNegative(TManSamplePort.class));
 
@@ -88,7 +93,7 @@ public final class SearchPeer extends ComponentDefinition {
 			self = peerSelf.getPeerAddress();
 			CyclonConfiguration cyclonConfiguration = init.getCyclonConfiguration();
 			aggregationConfiguration = init.getApplicationConfiguration();
-			
+			tmanConfiguration = init.getTManConfiguration();
 			bootstrapRequestPeerCount = cyclonConfiguration.getBootstrapRequestPeerCount();
 
 			trigger(new CyclonInit(cyclonConfiguration), cyclon.getControl());
@@ -121,6 +126,7 @@ public final class SearchPeer extends ComponentDefinition {
 		public void handle(JoinCompleted event) {
 			trigger(new BootstrapCompleted("Cyclon", peerSelf), bootstrap.getPositive(P2pBootstrap.class));
 			trigger(new SearchInit(peerSelf, num, aggregationConfiguration), search.getControl());
+            trigger(new TManInit(peerSelf, tmanConfiguration), tman.getControl());
 		}
 	};
 }
