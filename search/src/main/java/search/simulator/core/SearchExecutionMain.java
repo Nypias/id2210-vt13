@@ -44,7 +44,7 @@ public final class SearchExecutionMain extends ComponentDefinition {
 
         // create
         Component bootstrapServer = create(BootstrapServer.class);
-        Component p2pSimulator = create(P2pOrchestrator.class);
+        Component p2pOrchestrator = create(P2pOrchestrator.class);
         Component simulator = create(SearchSimulator.class);
         Component web = create(JettyWebServer.class);
 
@@ -55,16 +55,15 @@ public final class SearchExecutionMain extends ComponentDefinition {
         final TManConfiguration tmanConfiguration = TManConfiguration.load(System.getProperty("tman.configuration"));
 
         trigger(new BootstrapServerInit(bootConfiguration), bootstrapServer.getControl());
-        trigger(new P2pOrchestratorInit(scenario, new KingLatencyMap()), p2pSimulator.getControl());
         trigger(new SimulatorInit(bootConfiguration, cyclonConfiguration, tmanConfiguration,
                 searchConfiguration), simulator.getControl());
 
         // connect
-        connect(bootstrapServer.getNegative(Network.class), p2pSimulator.getPositive(Network.class), new MessageDestinationFilter(bootConfiguration.getBootstrapServerAddress()));
-        connect(bootstrapServer.getNegative(Timer.class), p2pSimulator.getPositive(Timer.class));
-        connect(simulator.getNegative(Network.class), p2pSimulator.getPositive(Network.class));
-        connect(simulator.getNegative(Timer.class), p2pSimulator.getPositive(Timer.class));
-        connect(simulator.getNegative(SimulatorPort.class), p2pSimulator.getPositive(SimulatorPort.class));
+        connect(bootstrapServer.getNegative(Network.class), p2pOrchestrator.getPositive(Network.class), new MessageDestinationFilter(bootConfiguration.getBootstrapServerAddress()));
+        connect(bootstrapServer.getNegative(Timer.class), p2pOrchestrator.getPositive(Timer.class));
+        connect(simulator.getNegative(Network.class), p2pOrchestrator.getPositive(Network.class));
+        connect(simulator.getNegative(Timer.class), p2pOrchestrator.getPositive(Timer.class));
+        connect(simulator.getNegative(SimulatorPort.class), p2pOrchestrator.getPositive(SimulatorPort.class));
         connect(simulator.getPositive(Web.class), web.getNegative(Web.class));
 
 
@@ -77,6 +76,8 @@ public final class SearchExecutionMain extends ComponentDefinition {
                 30 * 1000, 2, webServerAddr);
         trigger(new JettyWebServerInit(webConfiguration), web.getControl());
         System.out.println("Webserver Started. Address=" + webServerAddr + "/1/search");
+        
+        trigger(new P2pOrchestratorInit(scenario, new KingLatencyMap()), p2pOrchestrator.getControl());
     }
 
 //-------------------------------------------------------------------	
