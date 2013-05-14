@@ -6,6 +6,7 @@ import java.util.ArrayList;
 
 import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
+import java.math.BigInteger;
 import java.util.Collections;
 
 import se.sics.kompics.ComponentDefinition;
@@ -22,6 +23,9 @@ import tman.simulator.snapshot.Snapshot;
 
 public final class TMan extends ComponentDefinition {
 
+    private int SIMILARITY_LIST_SIZE = 5;
+    private int CONVERGENCE_CONSTANT = 5;
+    
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
     Positive<Network> networkPort = positive(Network.class);
@@ -29,7 +33,10 @@ public final class TMan extends ComponentDefinition {
     private long period;
     private PeerAddress self;
     private ArrayList<PeerAddress> tmanPartners;
+    private ArrayList<PeerAddress> tmanPrevPartners;
+    private int convergenceCount = 0;
     private TManConfiguration tmanConfiguration;
+    private boolean electing = false;
 
     public class TManSchedule extends Timeout {
 
@@ -46,7 +53,8 @@ public final class TMan extends ComponentDefinition {
 //-------------------------------------------------------------------	
     public TMan() {
         tmanPartners = new ArrayList<PeerAddress>();
-
+        tmanPrevPartners = new ArrayList<PeerAddress>();
+        
         subscribe(handleInit, control);
         subscribe(handleRound, timerPort);
         subscribe(handleCyclonSample, cyclonSamplePort);
@@ -94,7 +102,7 @@ public final class TMan extends ComponentDefinition {
                 }
                 System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
                 if (randomPeer != null) {
-                    if (tmanPartners.size() >= 3) {
+                    if (tmanPartners.size() >= SIMILARITY_LIST_SIZE) {
                         // Sorting based on preference function to find the least prefered node.
                         UtilityComparator uc = new UtilityComparator(self);
                         Collections.sort(tmanPartners, uc);
@@ -108,11 +116,53 @@ public final class TMan extends ComponentDefinition {
                         tmanPartners.add(randomPeer);
                         System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
                     }
+                    if(compareList(tmanPartners, tmanPrevPartners)){
+                        convergenceCount++;
+                    }
+                    else {
+                        convergenceCount = 0;
+                    }
+                    
+                    System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
+                    
+                    if(!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().min(minimumUtility(tmanPartners)))) {
+                        electing = true;
+                        System.err.println("[TMAN::" + self.getPeerId() + "] I am starting leader election!!");
+                    }
+                    
+                    tmanPrevPartners.clear();
+                    tmanPrevPartners.addAll(tmanPartners);
                 }
             }
             System.err.println("=====================================================================================");
         }
     };
+    
+    private boolean compareList(ArrayList<PeerAddress> a, ArrayList<PeerAddress> b) {
+        if(a.size() == b.size()) {
+            for(int i = 0; i < a.size(); i++) {
+                if(!a.get(i).getPeerId().equals(b.get(i).getPeerId())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+    
+    private BigInteger minimumUtility(ArrayList<PeerAddress> list) {
+        BigInteger min = null;
+        if (!list.isEmpty()) {
+            min = list.get(0).getPeerId();
+            
+            for(PeerAddress peer : list) {
+                if(peer.getPeerId().compareTo(min) == -1) {
+                    min = peer.getPeerId();
+                }
+            }
+        }
+        return min;
+    }
 //-------------------------------------------------------------------	
     Handler<ExchangeMsg.Request> handleTManPartnersRequest = new Handler<ExchangeMsg.Request>() {
         @Override
