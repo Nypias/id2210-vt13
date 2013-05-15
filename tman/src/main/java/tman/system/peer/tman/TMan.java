@@ -23,8 +23,8 @@ import tman.simulator.snapshot.Snapshot;
 
 public final class TMan extends ComponentDefinition {
 
-    private int SIMILARITY_LIST_SIZE = 2;
-    private int CONVERGENCE_CONSTANT = 5;
+    private int SIMILARITY_LIST_SIZE = 3;
+    private int CONVERGENCE_CONSTANT = 10;
     
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
@@ -60,6 +60,10 @@ public final class TMan extends ComponentDefinition {
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManPartnersResponse, networkPort);
         subscribe(handleTManPartnersRequest, networkPort);
+        subscribe(handleThinkLeaderMessage, networkPort);
+        subscribe(handleElectionMessage, networkPort);
+        subscribe(handleOKMessage, networkPort);
+        subscribe(handleCoordinatorMessage, networkPort);
     }
 //-------------------------------------------------------------------	
     Handler<TManInit> handleInit = new Handler<TManInit>() {
@@ -89,9 +93,9 @@ public final class TMan extends ComponentDefinition {
         @Override
         public void handle(CyclonSample event) {
             ArrayList<PeerAddress> cyclonPartners = event.getSample();
-            System.err.println("=====================================================================================");
-            System.err.println("[TMAN::" + self.getPeerId() + "] Cyclon Partners:" + cyclonPartners);
-            System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners:" + tmanPartners);
+//            System.err.println("=====================================================================================");
+//            System.err.println("[TMAN::" + self.getPeerId() + "] Cyclon Partners:" + cyclonPartners);
+//            System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners:" + tmanPartners);
             if (!cyclonPartners.isEmpty()) {
                 PeerAddress randomPeer = null;
                 for (PeerAddress cyclonPeer : cyclonPartners) {
@@ -100,21 +104,21 @@ public final class TMan extends ComponentDefinition {
                         break;
                     }
                 }
-                System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
+//                System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
                 if (randomPeer != null) {
                     if (tmanPartners.size() >= SIMILARITY_LIST_SIZE) {
                         // Sorting based on preference function to find the least prefered node.
                         UtilityComparator uc = new UtilityComparator(self);
                         Collections.sort(tmanPartners, uc);
-                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (sorted):" + tmanPartners);
+//                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (sorted):" + tmanPartners);
                         if (uc.compare(tmanPartners.get(0), randomPeer) == -1) {
                             tmanPartners.set(0, randomPeer);
                         }
-                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (swapped):" + tmanPartners);
+//                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (swapped):" + tmanPartners);
                     }
                     else {
                         tmanPartners.add(randomPeer);
-                        System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
+//                        System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
                     }
                     if(compareList(tmanPartners, tmanPrevPartners)){
                         convergenceCount++;
@@ -123,18 +127,65 @@ public final class TMan extends ComponentDefinition {
                         convergenceCount = 0;
                     }
                     
-                    System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
+//                    System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
                     
                     if(!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
                         electing = true;
-                        System.err.println("[TMAN::" + self.getPeerId() + "] I am starting leader election!!");
+                        System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader!");
+                        startLeaderElection();
                     }
                     
                     tmanPrevPartners.clear();
                     tmanPrevPartners.addAll(tmanPartners);
                 }
             }
-            System.err.println("=====================================================================================");
+//            System.err.println("=====================================================================================");
+        }
+    };
+    
+    private void startLeaderElection() {
+        ArrayList<PeerAddress> electionGroup = new ArrayList<PeerAddress>(tmanPartners);
+        electionGroup.add(self);
+        System.err.println("[ELECTION::" + self.getPeerId() + "] The election group is " + electionGroup);
+        for(PeerAddress peer : tmanPartners) {
+            trigger(new ThinkLeaderMessage(self, peer, electionGroup), networkPort);
+        }
+    }
+    
+    Handler<ThinkLeaderMessage> handleThinkLeaderMessage = new Handler<ThinkLeaderMessage>() {
+        @Override
+        public void handle(ThinkLeaderMessage event) {
+            ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
+            System.err.println("[ELECTION::" + self.getPeerId() + "] I got an think_leader message!");
+            if(self.getPeerId().equals(minimumUtility(electionGroup))) {
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I am eligible to send election! (" + minimumUtility(electionGroup) + ")");
+                for(PeerAddress peer : electionGroup) {
+                    if(!self.getPeerId().equals(peer.getPeerId())) {
+                        trigger(new ElectionMessage(self, peer), networkPort);
+                    }
+                }
+            }
+        }
+    };
+    
+    Handler<ElectionMessage> handleElectionMessage = new Handler<ElectionMessage>() {
+        @Override
+        public void handle(ElectionMessage event) {
+            System.err.println("[ELECTION::" + self.getPeerId() + "] I got an election message!");
+        }
+    };
+    
+    Handler<OKMessage> handleOKMessage = new Handler<OKMessage>() {
+        @Override
+        public void handle(OKMessage event) {
+            
+        }
+    };
+    
+    Handler<CoordinatorMessage> handleCoordinatorMessage = new Handler<CoordinatorMessage>() {
+        @Override
+        public void handle(CoordinatorMessage event) {
+            
         }
     };
     
@@ -148,6 +199,20 @@ public final class TMan extends ComponentDefinition {
             return true;
         }
         return false;
+    }
+    
+    private BigInteger minimumUtility(ArrayList<PeerAddress> list) {
+        BigInteger min = null;
+        if (!list.isEmpty()) {
+            min = list.get(0).getPeerId();
+            
+            for(PeerAddress peer : list) {
+                if(peer.getPeerId().compareTo(min) == -1) {
+                    min = peer.getPeerId();
+                }
+            }
+        }
+        return min;
     }
     
     private BigInteger maximumUtility(ArrayList<PeerAddress> list) {
