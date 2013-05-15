@@ -97,6 +97,8 @@ public final class SearchPeer extends ComponentDefinition {
 			BootstrapRequest request = new BootstrapRequest("Cyclon", bootstrapRequestPeerCount);
 			trigger(request, bootstrap.getPositive(P2pBootstrap.class));
 			Snapshot.addPeer(peerSelf);
+            
+            System.err.println("[PEER] " + peerSelf.getPeerId());
 		}
 	};
 

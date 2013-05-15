@@ -8,12 +8,15 @@ import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
 import java.math.BigInteger;
 import java.util.Collections;
+import java.util.Random;
+import java.util.UUID;
 
 import se.sics.kompics.ComponentDefinition;
 import se.sics.kompics.Handler;
 import se.sics.kompics.Negative;
 import se.sics.kompics.Positive;
 import se.sics.kompics.network.Network;
+import se.sics.kompics.timer.CancelTimeout;
 import se.sics.kompics.timer.SchedulePeriodicTimeout;
 import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timeout;
@@ -23,8 +26,10 @@ import tman.simulator.snapshot.Snapshot;
 
 public final class TMan extends ComponentDefinition {
 
-    private int SIMILARITY_LIST_SIZE = 3;
-    private int CONVERGENCE_CONSTANT = 10;
+    private final int SIMILARITY_LIST_SIZE = 3;
+    private final int CONVERGENCE_CONSTANT = 10;
+    private final int BULLY_TIMEOUT = 2000;
+    private final double SOFT_MAX_TEMPERATURE = 1.0;
     
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
@@ -35,8 +40,12 @@ public final class TMan extends ComponentDefinition {
     private ArrayList<PeerAddress> tmanPartners;
     private ArrayList<PeerAddress> tmanPrevPartners;
     private int convergenceCount = 0;
+    private UUID timeoutId;
     private TManConfiguration tmanConfiguration;
     private boolean electing = false;
+    private PeerAddress leader = null;
+    private long electionID = 0;
+    private Random r;
 
     public class TManSchedule extends Timeout {
 
@@ -64,6 +73,8 @@ public final class TMan extends ComponentDefinition {
         subscribe(handleElectionMessage, networkPort);
         subscribe(handleOKMessage, networkPort);
         subscribe(handleCoordinatorMessage, networkPort);
+        subscribe(handleElectionTimeout, timerPort);
+        subscribe(handleCoordinatorTimeout, timerPort);
     }
 //-------------------------------------------------------------------	
     Handler<TManInit> handleInit = new Handler<TManInit>() {
@@ -155,13 +166,52 @@ public final class TMan extends ComponentDefinition {
     Handler<ThinkLeaderMessage> handleThinkLeaderMessage = new Handler<ThinkLeaderMessage>() {
         @Override
         public void handle(ThinkLeaderMessage event) {
+            electing = true;
             ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
-            System.err.println("[ELECTION::" + self.getPeerId() + "] I got an think_leader message!");
+            System.err.println("[ELECTION::" + self.getPeerId() + "] I got a THINK_LEADER message!");
             if(self.getPeerId().equals(minimumUtility(electionGroup))) {
-                System.err.println("[ELECTION::" + self.getPeerId() + "] I am eligible to send election! (" + minimumUtility(electionGroup) + ")");
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I am eligible to start the election! (" + minimumUtility(electionGroup) + ")");
                 for(PeerAddress peer : electionGroup) {
                     if(!self.getPeerId().equals(peer.getPeerId())) {
-                        trigger(new ElectionMessage(self, peer), networkPort);
+                        trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
+                    }
+                }
+                
+                ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
+                timeoutId = st.getTimeoutEvent().getTimeoutId();
+                trigger(st, timerPort);
+            }
+        }
+    };
+    
+    Handler<ElectionTimeout> handleElectionTimeout = new Handler<ElectionTimeout>() {
+        @Override
+        public void handle(ElectionTimeout event) {
+            if(electing) {
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I got an election timeout!");
+                ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
+                for(PeerAddress peer : electionGroup) {
+                    trigger(new CoordinatorMessage(self, peer), networkPort);
+                }
+            }
+        }
+    };
+    
+    Handler<CoordinatorTimeout> handleCoordinatorTimeout = new Handler<CoordinatorTimeout>() {
+        @Override
+        public void handle(CoordinatorTimeout event) {
+            if(electing) {
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I got a coordinator timeout!");
+                ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
+                for (PeerAddress peer : electionGroup) {
+                    if (self.getPeerId().compareTo(peer.getPeerId()) == -1) {
+                        trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
+
+                        ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                        st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
+                        timeoutId = st.getTimeoutEvent().getTimeoutId();
+                        trigger(st, timerPort);
                     }
                 }
             }
@@ -171,21 +221,60 @@ public final class TMan extends ComponentDefinition {
     Handler<ElectionMessage> handleElectionMessage = new Handler<ElectionMessage>() {
         @Override
         public void handle(ElectionMessage event) {
-            System.err.println("[ELECTION::" + self.getPeerId() + "] I got an election message!");
+            if(electing) {
+                boolean sentElectionMessage = false;
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I got an election message from " + event.getPeerSource().getPeerId() + "!");
+                BigInteger sender = event.getPeerSource().getPeerId();
+                if(sender.compareTo(self.getPeerId()) == -1) {
+                    trigger(new OKMessage(self, event.getPeerSource(), event.getElectionGroup()), networkPort);
+                    ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
+                    for(PeerAddress peer : electionGroup) {
+                        if(self.getPeerId().compareTo(peer.getPeerId()) == -1) {
+                            sentElectionMessage = true;
+                            trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
+
+                            ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                            st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
+                            timeoutId = st.getTimeoutEvent().getTimeoutId();
+                            trigger(st, timerPort);
+                        }
+                    }
+
+                    if (!sentElectionMessage) {
+                        for (PeerAddress peer : electionGroup) {
+                            trigger(new CoordinatorMessage(self, peer), networkPort);
+                        }
+                    }
+                }
+            }
         }
     };
     
     Handler<OKMessage> handleOKMessage = new Handler<OKMessage>() {
         @Override
         public void handle(OKMessage event) {
-            
+            if(electing) {
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I got an OK message from " + event.getPeerSource().getPeerId() + "!");
+                CancelTimeout ct = new CancelTimeout(timeoutId);
+                trigger(ct, timerPort);
+
+                ScheduleTimeout st = new ScheduleTimeout(2 * BULLY_TIMEOUT);
+                st.setTimeoutEvent(new CoordinatorTimeout(st, event.getElectionGroup()));
+                timeoutId = st.getTimeoutEvent().getTimeoutId();
+                trigger(st, timerPort);
+            }
         }
     };
     
     Handler<CoordinatorMessage> handleCoordinatorMessage = new Handler<CoordinatorMessage>() {
         @Override
         public void handle(CoordinatorMessage event) {
+            System.err.println("[ELECTION::" + self.getPeerId() + "] I got a coordinator message from " + event.getPeerSource().getPeerId() + " the leader is " + event.getLeader().getPeerId() + "!");
+            CancelTimeout ct = new CancelTimeout(timeoutId);
+            trigger(ct, timerPort);
             
+            leader = event.getLeader();
+            electing = false;
         }
     };
     
@@ -243,4 +332,39 @@ public final class TMan extends ComponentDefinition {
         }
     };
 
+    // TODO - if you call this method with a list of entries, it will
+    // return a single node, weighted towards the 'best' node (as defined by
+    // ComparatorByID) with the temperature controlling the weighting.
+    // A temperature of '1.0' will be greedy and always return the best node.
+    // A temperature of '0.000001' will return a random node.
+    // A temperature of '0.0' will throw a divide by zero exception :)
+    // Reference:
+    // http://webdocs.cs.ualberta.ca/~sutton/book/2/node4.html
+    private PeerAddress getSoftMaxAddress(ArrayList<PeerAddress> entries) {
+        Collections.sort(entries, new UtilityComparator(self));
+
+        double rnd = r.nextDouble();
+        double total = 0.0d;
+        double[] values = new double[entries.size()];
+        int j = entries.size() + 1;
+        for (int i = 0; i < entries.size(); i++) {
+            // get inverse of values - lowest have highest value.
+            double val = j;
+            j--;
+            values[i] = Math.exp(val / SOFT_MAX_TEMPERATURE);
+            total += values[i];
+        }
+
+        for (int i = 0; i < values.length; i++) {
+            if (i != 0) {
+                values[i] += values[i - 1];
+            }
+            // normalise the probability for this entry
+            double normalisedUtility = values[i] / total;
+            if (normalisedUtility >= rnd) {
+                return entries.get(i);
+            }
+        }
+        return entries.get(entries.size() - 1);
+    }
 }

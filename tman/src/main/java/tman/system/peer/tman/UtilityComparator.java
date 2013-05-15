@@ -29,10 +29,18 @@ public class UtilityComparator implements Comparator<PeerAddress>
             return 1;
         }
         
+        if(utilityA.compareTo(utilityBN) == -1 && utilityB.compareTo(utilityBN) == 1) {
+            return -1;
+        }
+        
         // Second gradient condition
         BigInteger distanceA = (utilityA.subtract(utilityBN)).abs();
         BigInteger distanceB = (utilityB.subtract(utilityBN)).abs();
         
-        return (-1) * distanceA.compareTo(distanceB);
+        if(distanceA.compareTo(distanceB) == -1) {
+            return 1;
+        }
+        
+        return -1;
     }
 }

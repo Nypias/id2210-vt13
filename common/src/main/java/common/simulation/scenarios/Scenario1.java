@@ -17,7 +17,7 @@ public class Scenario1 extends Scenario {
             StochasticProcess process2 = new StochasticProcess() {
                 {
                     eventInterArrivalTime(constant(1000));
-                    raise(9, Operations.peerJoin(5), uniform(13));
+                    raise(29, Operations.peerJoin(5), uniform(13));
                 }
             };
             StochasticProcess process3 = new StochasticProcess() {
