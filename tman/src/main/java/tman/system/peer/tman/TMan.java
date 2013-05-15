@@ -108,47 +108,44 @@ public final class TMan extends ComponentDefinition {
 //            System.err.println("[TMAN::" + self.getPeerId() + "] Cyclon Partners:" + cyclonPartners);
 //            System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners:" + tmanPartners);
             if (!cyclonPartners.isEmpty()) {
-                PeerAddress randomPeer = null;
-                for (PeerAddress cyclonPeer : cyclonPartners) {
-                    if (!tmanPartners.contains(cyclonPeer)) {
-                        randomPeer = cyclonPeer;
-                        break;
-                    }
-                }
 //                System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
-                if (randomPeer != null) {
-                    if (tmanPartners.size() >= SIMILARITY_LIST_SIZE) {
-                        // Sorting based on preference function to find the least prefered node.
-                        UtilityComparator uc = new UtilityComparator(self);
-                        Collections.sort(tmanPartners, uc);
-//                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (sorted):" + tmanPartners);
-                        if (uc.compare(tmanPartners.get(0), randomPeer) == -1) {
-                            tmanPartners.set(0, randomPeer);
+                for (PeerAddress cyclonPeer : cyclonPartners) {
+                    if(!tmanPartners.contains(cyclonPeer)) {
+                        if (tmanPartners.size() >= SIMILARITY_LIST_SIZE) {
+                            // Sorting based on preference function to find the least prefered node.
+                            UtilityComparator uc = new UtilityComparator(self);
+                            Collections.sort(tmanPartners, uc);
+        //                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (sorted):" + tmanPartners);
+                            if (uc.compare(tmanPartners.get(0), cyclonPeer) == -1) {
+                                tmanPartners.set(0, cyclonPeer);
+                            }
+        //                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (swapped):" + tmanPartners);
                         }
-//                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (swapped):" + tmanPartners);
+                        else {
+                            tmanPartners.add(cyclonPeer);
+        //                        System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
+                        }
                     }
-                    else {
-                        tmanPartners.add(randomPeer);
-//                        System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
-                    }
-                    if(compareList(tmanPartners, tmanPrevPartners)){
-                        convergenceCount++;
-                    }
-                    else {
-                        convergenceCount = 0;
-                    }
-                    
-//                    System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
-                    
-                    if(!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
-                        electing = true;
-                        System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader!");
-                        startLeaderElection();
-                    }
-                    
-                    tmanPrevPartners.clear();
-                    tmanPrevPartners.addAll(tmanPartners);
                 }
+                
+                // Keep track of consecutive same partner lists to detect convergence
+                if(compareList(tmanPartners, tmanPrevPartners)){
+                    convergenceCount++;
+                }
+                else {
+                    convergenceCount = 0;
+                }
+
+//                    System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
+
+                if(!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
+                    electing = true;
+                    System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader!");
+                    startLeaderElection();
+                }
+
+                tmanPrevPartners.clear();
+                tmanPrevPartners.addAll(tmanPartners);
             }
 //            System.err.println("=====================================================================================");
         }
