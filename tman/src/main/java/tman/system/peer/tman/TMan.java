@@ -23,7 +23,7 @@ import tman.simulator.snapshot.Snapshot;
 
 public final class TMan extends ComponentDefinition {
 
-    private int SIMILARITY_LIST_SIZE = 5;
+    private int SIMILARITY_LIST_SIZE = 2;
     private int CONVERGENCE_CONSTANT = 5;
     
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
@@ -125,7 +125,7 @@ public final class TMan extends ComponentDefinition {
                     
                     System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
                     
-                    if(!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().min(minimumUtility(tmanPartners)))) {
+                    if(!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
                         electing = true;
                         System.err.println("[TMAN::" + self.getPeerId() + "] I am starting leader election!!");
                     }
@@ -150,18 +150,18 @@ public final class TMan extends ComponentDefinition {
         return false;
     }
     
-    private BigInteger minimumUtility(ArrayList<PeerAddress> list) {
-        BigInteger min = null;
+    private BigInteger maximumUtility(ArrayList<PeerAddress> list) {
+        BigInteger max = null;
         if (!list.isEmpty()) {
-            min = list.get(0).getPeerId();
+            max = list.get(0).getPeerId();
             
             for(PeerAddress peer : list) {
-                if(peer.getPeerId().compareTo(min) == -1) {
-                    min = peer.getPeerId();
+                if(peer.getPeerId().compareTo(max) == 1) {
+                    max = peer.getPeerId();
                 }
             }
         }
-        return min;
+        return max;
     }
 //-------------------------------------------------------------------	
     Handler<ExchangeMsg.Request> handleTManPartnersRequest = new Handler<ExchangeMsg.Request>() {

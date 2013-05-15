@@ -17,14 +17,14 @@ public class UtilityComparator implements Comparator<PeerAddress>
      * Compare utility values of two nodes
      * @param a
      * @param b
-     * @return 
+     * @return 1 if a is more preferred than b!
      */
     @Override
     public int compare(PeerAddress a, PeerAddress b) {
         BigInteger utilityA = a.getPeerId();
         BigInteger utilityB = b.getPeerId();
         
-        // First gradient condition\
+        // First gradient condition
         if(utilityA.compareTo(utilityBN) == 1 && utilityB.compareTo(utilityBN) == -1) {
             return 1;
         }
