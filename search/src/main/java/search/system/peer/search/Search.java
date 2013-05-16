@@ -243,7 +243,7 @@ public final class Search extends ComponentDefinition {
     }
     
     private String jollyRogerHTML() {
-        String jollyRoger = "<!DOCTYPE html><html><head>	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />	<title>Jolly Roger</title>		<!-- CSS Styles -->	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/base.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/layout.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://127.0.0.1/JollyRoger/css/module.css\" type=\"text/css\"/>    	<!-- JavaScript Libraries -->    <script src=\"//ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js\" type=\"text/javascript\"></script>    <script type=\"text/javascript\" src=\"http://127.0.0.1/JollyRoger/js/jolly-lib.js\"></script>		<script>        var SEARCH_LINK = \"http://192.168.56.1:9999/\";		$(document).ready(function(e) {			$(\"#searchSubmit\").click(function(event) {                if($(\"#searchText\").val().length > 0) {                    var searchUrl = SEARCH_LINK + $(\"#searchPeer\").val() + \"/jrsearch-\" + $(\"#searchText\").val();                    searchAndRender(searchUrl, $(\".searchResults\"));                }                else {                    alert(\"Arrrrgh! Enter a search term!\");                }			});		});	</script></head><body>	<div class=\"website\">        <header>            <section class=\"headerContent\">            	<div class=\"logo\" />            </section>        </header>                <section class=\"search\">            <section class=\"searchBar\">            	<form action=\"#\">            		<input id=\"searchText\" type=\"text\" />                    <input id=\"searchPeer\" type=\"text\" />            		<input id=\"searchSubmit\" type=\"submit\" value=\"Search\" />            	</form>            </section>                        <section class=\"searchResultsContainer\">                <ul class=\"searchResults\">                	<img src=\"http://127.0.0.1/JollyRoger/img/no-torrents.png\" class=\"noresult\" alt=\"No results\" />                </ul>            </section>	        </section>                <!-- <footer>        	<div class=\"team\">	        	<div class=\"participant\">	            	<span>Thomas Fattal</span><br />	            	<span>tfattal@kth.se</span>	            </div>	            <div class=\"participant\">	            	<span>George Kallergis</span><br />	            	<span>geokal@kth.se</span>	            </div>	        </div>        </footer> -->    </div></body></html>";
+        String jollyRoger = "<!DOCTYPE html><html><head>	<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />	<title>Jolly Roger</title>		<!-- CSS Styles -->	<link rel=\"stylesheet\" href=\"http://service.yummycode.com/JollyRoger/css/base.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://service.yummycode.com/JollyRoger/css/layout.css\" type=\"text/css\"/>	<link rel=\"stylesheet\" href=\"http://service.yummycode.com/JollyRoger/css/module.css\" type=\"text/css\"/>    	<!-- JavaScript Libraries -->    <script src=\"//ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js\" type=\"text/javascript\"></script>    <script type=\"text/javascript\" src=\"http://service.yummycode.com/JollyRoger/js/jolly-lib.js\"></script>		<script>        var SEARCH_LINK = \"http://192.168.56.1:9999/\";		$(document).ready(function(e) {			$(\"#searchSubmit\").click(function(event) {                if($(\"#searchText\").val().length > 0) {                    var searchUrl = SEARCH_LINK + $(\"#searchPeer\").val() + \"/jrsearch-\" + $(\"#searchText\").val();                    searchAndRender(searchUrl, $(\".searchResults\"));                }                else {                    alert(\"Arrrrgh! Enter a search term!\");                }			});		});	</script></head><body>	<div class=\"website\">        <header>            <section class=\"headerContent\">            	<div class=\"logo\" />            </section>        </header>                <section class=\"search\">            <section class=\"searchBar\">            	<form action=\"#\">            		<input id=\"searchText\" type=\"text\" />                    <input id=\"searchPeer\" type=\"text\" />            		<input id=\"searchSubmit\" type=\"submit\" value=\"Search\" />            	</form>            </section>                        <section class=\"searchResultsContainer\">                <ul class=\"searchResults\">                	<img src=\"http://service.yummycode.com/JollyRoger/img/no-torrents.png\" class=\"noresult\" alt=\"No results\" />                </ul>            </section>	        </section>                <!-- <footer>        	<div class=\"team\">	        	<div class=\"participant\">	            	<span>Thomas Fattal</span><br />	            	<span>tfattal@kth.se</span>	            </div>	            <div class=\"participant\">	            	<span>George Kallergis</span><br />	            	<span>geokal@kth.se</span>	            </div>	        </div>        </footer> -->    </div></body></html>";
         return jollyRoger;
     }
 
@@ -262,38 +262,44 @@ public final class Search extends ComponentDefinition {
     }
     
     private String jrQuery(StringBuilder sb, String querystr) throws ParseException, IOException {
+        // Check if index has any entries first to avoid exception from Lucene when creating the reader.
+        if (index.listAll().length > 0) {
+            // the "title" arg specifies the default field to use when no field is explicitly specified in the query.
+            Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(querystr);
+            IndexSearcher searcher = null;
+            IndexReader reader = null;
+            try {
+                reader = DirectoryReader.open(index);
+                searcher = new IndexSearcher(reader);
+            }
+            catch (IOException ex) {
+                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+                System.exit(-1);
+            }
 
-        // the "title" arg specifies the default field to use when no field is explicitly specified in the query.
-        Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(querystr);
-        IndexSearcher searcher = null;
-        IndexReader reader = null;
-        try {
-            reader = DirectoryReader.open(index);
-            searcher = new IndexSearcher(reader);
-        } catch (IOException ex) {
-            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-            System.exit(-1);
+            int hitsPerPage = 1000;
+            TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
+
+            searcher.search(q, collector);
+            ScoreDoc[] hits = collector.topDocs().scoreDocs;
+
+            // display results
+            for (int i = 0; i < hits.length; ++i) {
+                int docId = hits[i].doc;
+                Document d = searcher.doc(docId);
+                sb.append("<li class=\"searchResultItem\"><div class=\"srIcon\"></div>")
+                        .append("<div class=\"srTitle\"><a href=\"magnet:?xt=urn:btih:")
+                        .append(d.get("magnet")).append("\">[").append(d.get("id")).append("] ")
+                        .append(d.get("title")).append("</a></div></li>");
+            }
+
+            // reader can only be closed when there
+            // is no need to access the documents any more.
+            reader.close();
         }
-
-        int hitsPerPage = 1000;
-        TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
-
-        searcher.search(q, collector);
-        ScoreDoc[] hits = collector.topDocs().scoreDocs;
-
-        // display results
-        for (int i = 0; i < hits.length; ++i) {
-            int docId = hits[i].doc;
-            Document d = searcher.doc(docId);
-            sb.append("<li class=\"searchResultItem\"><div class=\"srIcon\"></div>")
-                             .append("<div class=\"srTitle\"><a href=\"magnet:?xt=urn:btih:")
-                             .append(d.get("magnet")).append("\">[").append(d.get("id")).append("] ")
-                             .append(d.get("title")).append("</a></div></li>");
+        else {
+            sb.append("Found 0 entries!");
         }
-
-        // reader can only be closed when there
-        // is no need to access the documents any more.
-        reader.close();
         return sb.toString();
     }
     
@@ -369,40 +375,45 @@ public final class Search extends ComponentDefinition {
     }
     
     private String query(StringBuilder sb, String querystr) throws ParseException, IOException {
+        // Check if index has any entries first to avoid exception from Lucene when creating the reader.
+        if(index.listAll().length > 0) {
+            // the "title" arg specifies the default field to use when no field is explicitly specified in the query.
+            Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(querystr);
+            IndexSearcher searcher = null;
+            IndexReader reader = null;
+            try {
+                reader = DirectoryReader.open(index);
+                searcher = new IndexSearcher(reader);
+            } catch (IOException ex) {
+                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+                System.exit(-1);
+            }
 
-        // the "title" arg specifies the default field to use when no field is explicitly specified in the query.
-        Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(querystr);
-        IndexSearcher searcher = null;
-        IndexReader reader = null;
-        try {
-            reader = DirectoryReader.open(index);
-            searcher = new IndexSearcher(reader);
-        } catch (IOException ex) {
-            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-            System.exit(-1);
+            int hitsPerPage = 1000;
+            TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
+
+            searcher.search(q, collector);
+            ScoreDoc[] hits = collector.topDocs().scoreDocs;
+
+            // display results
+            sb.append("Found ").append(hits.length).append(" entries.<ul>");
+            for (int i = 0; i < hits.length; ++i) {
+                int docId = hits[i].doc;
+                Document d = searcher.doc(docId);
+                sb.append("<li>").append(i + 1).append(". [")
+                                 .append(d.get("id")).append("] ")
+                                 .append(d.get("title")).append(" (<a href=\"magnet:?xt=urn:btih:")
+                                 .append(d.get("magnet")).append("\">Download!</a>)</li>");
+            }
+            sb.append("</ul>");
+
+            // reader can only be closed when there
+            // is no need to access the documents any more.
+            reader.close();
         }
-
-        int hitsPerPage = 1000;
-        TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
-
-        searcher.search(q, collector);
-        ScoreDoc[] hits = collector.topDocs().scoreDocs;
-
-        // display results
-        sb.append("Found ").append(hits.length).append(" entries.<ul>");
-        for (int i = 0; i < hits.length; ++i) {
-            int docId = hits[i].doc;
-            Document d = searcher.doc(docId);
-            sb.append("<li>").append(i + 1).append(". [")
-                             .append(d.get("id")).append("] ")
-                             .append(d.get("title")).append(" (<a href=\"magnet:?xt=urn:btih:")
-                             .append(d.get("magnet")).append("\">Download!</a>)</li>");
+        else {
+            sb.append("Found 0 entries!");
         }
-        sb.append("</ul>");
-
-        // reader can only be closed when there
-        // is no need to access the documents any more.
-        reader.close();
         return sb.toString();
     }
     
