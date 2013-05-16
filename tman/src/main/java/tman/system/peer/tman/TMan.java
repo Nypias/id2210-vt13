@@ -46,6 +46,7 @@ public final class TMan extends ComponentDefinition {
     private PeerAddress leader = null;
     private long electionID = 0;
     private Random r;
+    private int roundCounter = 0;
 
     public class TManSchedule extends Timeout {
 
@@ -103,53 +104,62 @@ public final class TMan extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
+            roundCounter++;
             ArrayList<PeerAddress> cyclonPartners = event.getSample();
+            merge(cyclonPartners);
+        }
+    };
+    
+    private void merge(ArrayList<PeerAddress> partners) {
 //            System.err.println("=====================================================================================");
 //            System.err.println("[TMAN::" + self.getPeerId() + "] Cyclon Partners:" + cyclonPartners);
 //            System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners:" + tmanPartners);
-            if (!cyclonPartners.isEmpty()) {
+        if (!partners.isEmpty()) {
 //                System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
-                for (PeerAddress cyclonPeer : cyclonPartners) {
-                    if(!tmanPartners.contains(cyclonPeer)) {
-                        if (tmanPartners.size() >= SIMILARITY_LIST_SIZE) {
-                            // Sorting based on preference function to find the least prefered node.
-                            UtilityComparator uc = new UtilityComparator(self);
-                            Collections.sort(tmanPartners, uc);
-        //                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (sorted):" + tmanPartners);
-                            if (uc.compare(tmanPartners.get(0), cyclonPeer) == -1) {
-                                tmanPartners.set(0, cyclonPeer);
-                            }
-        //                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (swapped):" + tmanPartners);
+            for (PeerAddress cyclonPeer : partners) {
+                if (!tmanPartners.contains(cyclonPeer)) {
+                    if (tmanPartners.size() >= SIMILARITY_LIST_SIZE) {
+                        // Sorting based on preference function to find the least prefered node.
+                        UtilityComparator uc = new UtilityComparator(self);
+                        Collections.sort(tmanPartners, uc);
+//                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (sorted):" + tmanPartners);
+                        if (uc.compare(tmanPartners.get(0), cyclonPeer) == -1) {
+                            tmanPartners.set(0, cyclonPeer);
                         }
-                        else {
-                            tmanPartners.add(cyclonPeer);
-        //                        System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
-                        }
+//                        System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners (swapped):" + tmanPartners);
+                    }
+                    else {
+                        tmanPartners.add(cyclonPeer);
+//                        System.err.println("[TMAN::" + self.getPeerId() + "] New Peer:" + tmanPartners.get(0));
                     }
                 }
-                
-                // Keep track of consecutive same partner lists to detect convergence
-                if(compareList(tmanPartners, tmanPrevPartners)){
-                    convergenceCount++;
-                }
-                else {
-                    convergenceCount = 0;
-                }
+            }
+
+            // Keep track of consecutive same partner lists to detect convergence
+            if (compareList(tmanPartners, tmanPrevPartners)) {
+                convergenceCount++;
+            }
+            else {
+                convergenceCount = 0;
+            }
 
 //                    System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
 
-                if(!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
-                    electing = true;
-                    System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader!");
-                    startLeaderElection();
-                }
-
-                tmanPrevPartners.clear();
-                tmanPrevPartners.addAll(tmanPartners);
+            if (!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
+                electing = true;
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader!");
+                startLeaderElection();
             }
-//            System.err.println("=====================================================================================");
+
+            if (convergenceCount == CONVERGENCE_CONSTANT) {
+                System.err.println("[TMAN::" + self.getPeerId() + "] I converged in " + (roundCounter - 10) + " rounds!");
+            }
+
+            tmanPrevPartners.clear();
+            tmanPrevPartners.addAll(tmanPartners);
         }
-    };
+//            System.err.println("=====================================================================================");
+    }
     
     private void startLeaderElection() {
         ArrayList<PeerAddress> electionGroup = new ArrayList<PeerAddress>(tmanPartners);
