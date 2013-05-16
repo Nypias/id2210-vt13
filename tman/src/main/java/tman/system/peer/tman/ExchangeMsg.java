@@ -1,23 +1,24 @@
 package tman.system.peer.tman;
 
-import java.util.UUID;
-
-import common.peer.PeerMessage;
 import common.peer.PeerAddress;
+import common.peer.PeerMessage;
 import cyclon.system.peer.cyclon.DescriptorBuffer;
+import java.util.ArrayList;
+import java.util.UUID;
 import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timeout;
 
-public class ExchangeMsg {
 
-    public static class Request extends PeerMessage {
-
+public class ExchangeMsg
+{
+    public static class Request extends PeerMessage
+    {
         private static final long serialVersionUID = 8493601671018888143L;
         private final UUID requestId;
-        private final DescriptorBuffer randomBuffer;
+        private final ArrayList<PeerAddress> randomBuffer;
 
 //-------------------------------------------------------------------
-        public Request(UUID requestId, DescriptorBuffer randomBuffer, PeerAddress source, PeerAddress destination) {
+        public Request(UUID requestId, ArrayList<PeerAddress> randomBuffer, PeerAddress source, PeerAddress destination) {
             super(source, destination);
             this.requestId = requestId;
             this.randomBuffer = randomBuffer;
@@ -29,7 +30,7 @@ public class ExchangeMsg {
         }
 
         //-------------------------------------------------------------------
-        public DescriptorBuffer getRandomBuffer() {
+        public ArrayList<PeerAddress> getSimilaritySet() {
             return randomBuffer;
         }
 
@@ -39,14 +40,14 @@ public class ExchangeMsg {
         }
     }
 
-    public static class Response extends PeerMessage {
-
+    public static class Response extends PeerMessage
+    {
         private static final long serialVersionUID = -5022051054665787770L;
         private final UUID requestId;
-        private final DescriptorBuffer selectedBuffer;
+        private final ArrayList<PeerAddress> selectedBuffer;
 
 //-------------------------------------------------------------------
-        public Response(UUID requestId, DescriptorBuffer selectedBuffer, PeerAddress source, PeerAddress destination) {
+        public Response(UUID requestId, ArrayList<PeerAddress> selectedBuffer, PeerAddress source, PeerAddress destination) {
             super(source, destination);
             this.requestId = requestId;
             this.selectedBuffer = selectedBuffer;
@@ -58,7 +59,7 @@ public class ExchangeMsg {
         }
 
 //-------------------------------------------------------------------
-        public DescriptorBuffer getSelectedBuffer() {
+        public ArrayList<PeerAddress> getSimilaritySet() {
             return selectedBuffer;
         }
 
@@ -68,8 +69,8 @@ public class ExchangeMsg {
         }
     }
 
-    public static class RequestTimeout extends Timeout {
-
+    public static class RequestTimeout extends Timeout
+    {
         private final PeerAddress peer;
 
 //-------------------------------------------------------------------
@@ -83,4 +84,5 @@ public class ExchangeMsg {
             return peer;
         }
     }
+
 }
