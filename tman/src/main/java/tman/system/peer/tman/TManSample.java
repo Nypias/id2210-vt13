@@ -7,19 +7,24 @@ import common.peer.PeerAddress;
 import se.sics.kompics.Event;
 
 
-public class TManSample extends Event {
-	ArrayList<PeerAddress> partners = new ArrayList<PeerAddress>();
+public class TManSample extends Event
+{
+    ArrayList<PeerAddress> partners = new ArrayList<PeerAddress>();
+    PeerAddress leader;
 
-//-------------------------------------------------------------------
-	public TManSample(ArrayList<PeerAddress> partners) {
-		this.partners = partners;
-	}
-        
-	public TManSample() {
-	}
+    public TManSample() {
+    }
 
-//-------------------------------------------------------------------
-	public ArrayList<PeerAddress> getSample() {
-		return this.partners;
-	}
+    public TManSample(ArrayList<PeerAddress> partners, PeerAddress leader) {
+        this.partners = partners;
+        this.leader = leader;
+    }
+
+    public ArrayList<PeerAddress> getSample() {
+        return this.partners;
+    }
+
+    public PeerAddress getLeader() {
+        return leader;
+    }
 }

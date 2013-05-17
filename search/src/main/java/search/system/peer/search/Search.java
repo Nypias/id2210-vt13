@@ -8,7 +8,9 @@ import cyclon.system.peer.cyclon.CyclonSampleResponse;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Random;
+import java.util.UUID;
 import java.util.logging.Level;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
@@ -37,7 +39,8 @@ import se.sics.kompics.Handler;
 import se.sics.kompics.Negative;
 import se.sics.kompics.Positive;
 import se.sics.kompics.network.Network;
-import se.sics.kompics.timer.SchedulePeriodicTimeout;
+import se.sics.kompics.timer.CancelTimeout;
+import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timer;
 import se.sics.kompics.web.Web;
 import se.sics.kompics.web.WebRequest;
@@ -45,8 +48,10 @@ import se.sics.kompics.web.WebResponse;
 import search.simulator.snapshot.Snapshot;
 import search.system.peer.AddIndexText;
 import search.system.peer.IndexPort;
+import tman.system.peer.tman.ElectionTimeout;
 import tman.system.peer.tman.TManSample;
 import tman.system.peer.tman.TManSamplePort;
+import tman.system.peer.tman.UtilityComparator;
 
 /**
  * Should have some comments here.
@@ -54,6 +59,9 @@ import tman.system.peer.tman.TManSamplePort;
  */
 public final class Search extends ComponentDefinition {
 
+    private final double SOFT_MAX_TEMPERATURE = 1.0;
+    private final int NEW_ENTRY_ACK_TIMEOUT = 3000;
+    
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
     Positive<IndexPort> indexPort = positive(IndexPort.class);
     Positive<Network> networkPort = positive(Network.class);
@@ -63,33 +71,46 @@ public final class Search extends ComponentDefinition {
     Negative<CyclonSamplePort> cyclonSamplePortRequest = negative(CyclonSamplePort.class);
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
 
-    ArrayList<PeerAddress> neighbours = new ArrayList<PeerAddress>();
-    Random randomGenerator = new Random();
-    ArrayList<Integer> indexStore = new ArrayList<Integer>();
+    private HashMap<String, PendingACK> pendingResponses = new HashMap<String, PendingACK>();
+    private ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
+    private PeerAddress leader = null;
+    private Random randomGenerator = new Random();
+    private ArrayList<Integer> indexStore = new ArrayList<Integer>();
     private PeerAddress self;
     private long period;
     private double num;
+    private Random r = new Random();
     private SearchConfiguration searchConfiguration;
-    // Apache Lucene used for searching
+    private WebRequest tempWebRequest;
+        // Apache Lucene used for searching
     StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_42);
     Directory index = new RAMDirectory();
     IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_42, analyzer);
 
-    private int latestMissingIndexValue =0;
+    private int latestMissingIndexValue = 0;
+    private int nextIndexEntryID = 0;
+    private int addEntryTriesCounter = 0;
     
 //-------------------------------------------------------------------	
     public Search() {
         subscribe(handleUpdateIndexTimeout, timerPort);
         subscribe(handleIndexUpdateRequest, networkPort);
         subscribe(handleIndexUpdateResponse, networkPort);
+        subscribe(handleAddEntryToLeader, networkPort);
+        subscribe(handleAddEntry, networkPort);
         subscribe(handleInit, control);
         subscribe(handleWebRequest, webPort);
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManSample, tmanSamplePort);
         subscribe(handleAddIndexText, indexPort);
+        subscribe(handleAddNewEntryTimeout, timerPort);
+        subscribe(handleAddEntryACK, networkPort);
+        subscribe(handleNewEntryACK, networkPort);
+        subscribe(handleNewEntryNACK, networkPort);
     }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
+        @Override
         public void handle(SearchInit init) {
             self = init.getSelf();
             num = init.getNum();
@@ -186,17 +207,131 @@ public final class Search extends ComponentDefinition {
             WebResponse response;
             if (args[0].compareToIgnoreCase("search") == 0) {
                 response = new WebResponse(searchPageHtml(args[1]), event, 1, 1);
+                trigger(response, webPort);
             } else if (args[0].compareToIgnoreCase("add") == 0) {
                 response = new WebResponse(addEntryHtml(args[1], args[2], args[3]), event, 1, 1);
+                trigger(response, webPort);
             } else if (args[0].compareToIgnoreCase("jollyroger") == 0) {
                 response = new WebResponse(jollyRogerHTML(), event, 1, 1);
+                trigger(response, webPort);
             } else if (args[0].compareToIgnoreCase("jrsearch") == 0) {
                 response = new WebResponse(jrSearchPageHtml(args[1]), event, 1, 1);
+                trigger(response, webPort);
+            } else if (args[0].compareToIgnoreCase("test") == 0) {
+                tempWebRequest = event;
+                handleNewEntry();
             } else {
-                response = new WebResponse(searchPageHtml(event
-                        .getTarget()), event, 1, 1);
+                response = new WebResponse(searchPageHtml(event.getTarget()), event, 1, 1);
+                trigger(response, webPort);
             }
+        }
+    };
+    
+    private void handleNewEntry() {
+        PeerAddress targetPeer;
+        if(leader != null) {
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to the leader (" + leader.getPeerId() + ")");
+            targetPeer = leader;
+        }
+        else {
+            targetPeer = getSoftMaxAddress(tmanPartners);
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Forwarding new entry to the leader through " + targetPeer.getPeerId());
+        }
+        trigger(new ForwardEntryToLeader(self, targetPeer, self, new Entry("Jolly Roger", "1SFG2G3424IUIH3G2H3GR2HU89U2")), networkPort);
+    }
+    
+    Handler<ForwardEntryToLeader> handleAddEntryToLeader = new Handler<ForwardEntryToLeader>() {
+        @Override
+        public void handle(ForwardEntryToLeader event) {
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got forward message from " + event.getPeerSource().getPeerId());
+            if(leader != null) {
+                if(self.getPeerId().equals(leader.getPeerId())) {
+                    System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I am the leader and I received a new entry!");
+                    System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to " + tmanPartners);
+                    Entry newEntry = event.getNewEntry();
+                    try {
+                        newEntry.setId((nextIndexEntryID++) + "");
+                        
+                        // Add to ourselves
+                        addEntry(newEntry);
+
+                        for (PeerAddress peer : tmanPartners) {
+                            trigger(new AddEntry(self, peer, newEntry), networkPort);
+                        }
+                        
+                        ScheduleTimeout st = new ScheduleTimeout(NEW_ENTRY_ACK_TIMEOUT);
+                        st.setTimeoutEvent(new AddNewEntryTimeout(st, newEntry.getId()));
+                        UUID timeoutID = st.getTimeoutEvent().getTimeoutId();
+                        trigger(st, timerPort);
+
+                        pendingResponses.put(newEntry.getId(), new PendingACK(timeoutID, event.getRequestSource()));
+                    }
+                    catch (IOException ex) {
+                        nextIndexEntryID--;
+                        trigger(new NewEntryNACK(self, event.getRequestSource()), networkPort);
+                    }
+                }
+                else {
+                    trigger(new ForwardEntryToLeader(self, leader, event.getRequestSource(), event.getNewEntry()), networkPort);
+                }
+            }
+            else {
+                trigger(new ForwardEntryToLeader(self, getSoftMaxAddress(tmanPartners), event.getRequestSource(), event.getNewEntry()), networkPort);
+            }
+        }
+    };
+    
+    Handler<AddEntryACK> handleAddEntryACK = new Handler<AddEntryACK>() {
+        @Override
+        public void handle(AddEntryACK event) {            
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I got an acknowledgment back from " + event.getPeerSource());
+            PendingACK pack = pendingResponses.get(event.getEntryID());
+            // Pack can be null because we can reach quorum before all nodes ACK their adds.
+            if(pack != null) {
+                pack.incReceivedACKs();
+                if(pack.getReceivedACKs() >= ((tmanPartners.size() / 2) + 1)) {
+                    System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] We have reached quorum of ACKs (" + pack.getReceivedACKs() + "/" + tmanPartners.size() + ")");
+                    trigger(new NewEntryACK(self, pack.getRequestSource()), networkPort);
+                    CancelTimeout ct = new CancelTimeout(pack.getTimeoutID());
+                    trigger(ct, timerPort);
+                    pendingResponses.remove(event.getEntryID());
+                }
+            }
+        }
+    };
+    
+    Handler<AddNewEntryTimeout> handleAddNewEntryTimeout = new Handler<AddNewEntryTimeout>() {
+        @Override
+        public void handle(AddNewEntryTimeout event) {
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] AddEntry timed out!");
+            PendingACK pack = pendingResponses.get(event.getEntryID());
+            if(pack.getReceivedACKs() < ((tmanPartners.size() / 2) + 1)) {
+                // Remove added entry from index
+                nextIndexEntryID--;
+                trigger(new NewEntryNACK(self, pack.getRequestSource()), networkPort);
+            }
+        }
+    };
+    
+    Handler<NewEntryACK> handleNewEntryACK = new Handler<NewEntryACK>() {
+        @Override
+        public void handle(NewEntryACK event) {
+            WebResponse response = new WebResponse("New entry successfully added and replicated.", tempWebRequest, 1, 1);
             trigger(response, webPort);
+        }
+    };
+    
+    Handler<NewEntryNACK> handleNewEntryNACK = new Handler<NewEntryNACK>() {
+        @Override
+        public void handle(NewEntryNACK event) {
+            addEntryTriesCounter++;
+            if (addEntryTriesCounter > 5) {
+                WebResponse response = new WebResponse("New entry successfully added and replicated!", tempWebRequest, 1, 1);
+                trigger(response, webPort);
+            }
+            else {
+                handleNewEntry();
+            }
         }
     };
     
@@ -348,6 +483,10 @@ public final class Search extends ComponentDefinition {
         sb.append("</body></html>");
         return sb.toString();
     }
+    
+    private void addEntry(Entry newEntry) throws IOException {
+        addEntry(newEntry.getId(), newEntry.getTitle(), newEntry.getMagnetLink());
+    }
 
     private void addEntry(String id, String title, String magnetLink) throws IOException {
         if (!indexStore.contains(Integer.parseInt(id))) {
@@ -421,8 +560,24 @@ public final class Search extends ComponentDefinition {
         @Override
         public void handle(TManSample event) {
             // receive a new list of neighbours
-            ArrayList<PeerAddress> sampleNodes = event.getSample();
-            // Pick a node or more, and exchange index with them
+            tmanPartners.clear();
+            tmanPartners.addAll(event.getSample());
+            leader = event.getLeader();
+        }
+    };
+    
+    Handler<AddEntry> handleAddEntry = new Handler<AddEntry>() {
+        @Override
+        public void handle(AddEntry event) {
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Received AddEntry (" + event.getNewEntry() + ") from " + event.getPeerSource().getPeerId());
+            try {
+                addEntry(event.getNewEntry());
+                trigger(new AddEntryACK(self, event.getPeerSource(), event.getNewEntry().getId()), networkPort);
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Acknowledged AddEntry!");
+            }
+            catch (IOException ex) {
+                System.err.println("[SEARCH::" + self.getPeerId() + "] FAILED in adding new entry!");
+            }
         }
     };
     
@@ -441,4 +596,39 @@ public final class Search extends ComponentDefinition {
         }
     };
     
+    // TODO - if you call this method with a list of entries, it will
+    // return a single node, weighted towards the 'best' node (as defined by
+    // ComparatorByID) with the temperature controlling the weighting.
+    // A temperature of '1.0' will be greedy and always return the best node.
+    // A temperature of '0.000001' will return a random node.
+    // A temperature of '0.0' will throw a divide by zero exception :)
+    // Reference:
+    // http://webdocs.cs.ualberta.ca/~sutton/book/2/node4.html
+    private PeerAddress getSoftMaxAddress(ArrayList<PeerAddress> entries) {
+        Collections.sort(entries, new UtilityComparator(self));
+
+        double rnd = r.nextDouble();
+        double total = 0.0d;
+        double[] values = new double[entries.size()];
+        int j = entries.size() + 1;
+        for (int i = 0; i < entries.size(); i++) {
+            // get inverse of values - lowest have highest value.
+            double val = j;
+            j--;
+            values[i] = Math.exp(val / SOFT_MAX_TEMPERATURE);
+            total += values[i];
+        }
+
+        for (int i = 0; i < values.length; i++) {
+            if (i != 0) {
+                values[i] += values[i - 1];
+            }
+            // normalise the probability for this entry
+            double normalisedUtility = values[i] / total;
+            if (normalisedUtility >= rnd) {
+                return entries.get(i);
+            }
+        }
+        return entries.get(entries.size() - 1);
+    }
 }

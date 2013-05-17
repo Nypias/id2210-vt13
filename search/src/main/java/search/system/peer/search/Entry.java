@@ -11,9 +11,18 @@ public class Entry
         this.title = title;
         this.magnetLink = magnetLink;
     }
+    
+    public Entry(String title, String magnetLink) {
+        this.title = title;
+        this.magnetLink = magnetLink;
+    }
 
     public String getId() {
         return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
     }
 
     public String getTitle() {
