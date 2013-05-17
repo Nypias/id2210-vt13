@@ -201,12 +201,20 @@ public final class TMan extends ComponentDefinition {
         }
     }
     
+    private void startLeaderReelection() {
+        System.err.println("[ELECTION::" + self.getPeerId() + "] The re-election group is " + electionGroup);
+        for(PeerAddress peer : tmanPartners) {
+            trigger(new ThinkLeaderMessage(self, peer, electionGroup), networkPort);
+        }
+    }
+    
     Handler<ThinkLeaderMessage> handleThinkLeaderMessage = new Handler<ThinkLeaderMessage>() {
         @Override
         public void handle(ThinkLeaderMessage event) {
             electing = true;
+            leader = null;
             ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
-            System.err.println("[ELECTION::" + self.getPeerId() + "] I got a THINK_LEADER message!");
+            System.err.println("[ELECTION::" + self.getPeerId() + "] I got a THINK_LEADER (or LEADER_DEAD) message!");
             if(self.getPeerId().equals(minimumUtility(electionGroup))) {
                 System.err.println("[ELECTION::" + self.getPeerId() + "] I am eligible to start the election! (" + minimumUtility(electionGroup) + ")");
                 for(PeerAddress peer : electionGroup) {
@@ -322,6 +330,7 @@ public final class TMan extends ComponentDefinition {
                 trigger(heartbeatTimeout, timerPort);
             }
             
+            // SUICIDE
             if(self.getPeerId().equals(leader.getPeerId())) {
                 ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(20000);
                 heartbeatTimeout.setTimeoutEvent(new LeaderSuicide(heartbeatTimeout));
@@ -341,38 +350,32 @@ public final class TMan extends ComponentDefinition {
     Handler<HeartbeatTimeout> handleHeartbeatTimeout = new Handler<HeartbeatTimeout>() {
         @Override
         public void handle(HeartbeatTimeout event) {
-            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am sending a heartbeat to the leader (" + leader.getPeerId() + ") ");
-            trigger(new HeartbeatLeader(self, leader), networkPort);
-            
-            ScheduleTimeout st = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
-            st.setTimeoutEvent(new HeartbeatLeaderTimeout(st));
-            heartbeatTimeoutId = st.getTimeoutEvent().getTimeoutId();
-            trigger(st, timerPort);
+            if(leader != null) {
+                System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am sending a heartbeat to the leader (" + leader.getPeerId() + ") ");
+                trigger(new HeartbeatLeader(self, leader), networkPort);
+
+                ScheduleTimeout st = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+                st.setTimeoutEvent(new HeartbeatLeaderTimeout(st));
+                heartbeatTimeoutId = st.getTimeoutEvent().getTimeoutId();
+                trigger(st, timerPort);
+            }
         }
     };
     
     Handler<HeartbeatLeaderTimeout> handleHeartbeatLeaderTimeout = new Handler<HeartbeatLeaderTimeout>() {
         @Override
         public void handle(HeartbeatLeaderTimeout event) {
+            leader = null;
             System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I got a leader heartbeat timeout!");
             System.err.println("[HEARTBEAT::" + self.getPeerId() + "] Srating election with group " + electionGroup + "!");
-            for (PeerAddress peer : electionGroup) {
-                if (self.getPeerId().compareTo(peer.getPeerId()) == -1) {
-                    trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
-                }
-            }
-
-            ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
-            st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
-            timeoutId = st.getTimeoutEvent().getTimeoutId();
-            trigger(st, timerPort);
+            startLeaderReelection();
         }
     };
     
     Handler<HeartbeatLeader> handleHeartbeatLeader = new Handler<HeartbeatLeader>() {
         @Override
         public void handle(HeartbeatLeader event) {
-            if (!imDead || true) {
+            if (!imDead) {
                 System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am the leader and I got a heartbeat from " + event.getPeerSource().getPeerId() + "!");
                 trigger(new HeartbeatLeaderResponse(self, event.getPeerSource()), networkPort);
             }
@@ -382,13 +385,15 @@ public final class TMan extends ComponentDefinition {
     Handler<HeartbeatLeaderResponse> handleHeartbeatLeaderResponse = new Handler<HeartbeatLeaderResponse>() {
         @Override
         public void handle(HeartbeatLeaderResponse event) {
-            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I got a leader heartbeat response!");
-            CancelTimeout ct = new CancelTimeout(heartbeatTimeoutId);
-            trigger(ct, timerPort);
-            
-            ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
-            heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
-            trigger(heartbeatTimeout, timerPort);
+            if(leader != null) {
+                System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I got a leader heartbeat response!");
+                CancelTimeout ct = new CancelTimeout(heartbeatTimeoutId);
+                trigger(ct, timerPort);
+
+                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+                heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
+                trigger(heartbeatTimeout, timerPort);
+            }
         }
     };
     
