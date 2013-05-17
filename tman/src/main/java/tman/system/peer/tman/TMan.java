@@ -16,6 +16,7 @@ import se.sics.kompics.ComponentDefinition;
 import se.sics.kompics.Handler;
 import se.sics.kompics.Negative;
 import se.sics.kompics.Positive;
+import se.sics.kompics.Stop;
 import se.sics.kompics.network.Network;
 import se.sics.kompics.timer.CancelTimeout;
 import se.sics.kompics.timer.SchedulePeriodicTimeout;
@@ -31,6 +32,7 @@ public final class TMan extends ComponentDefinition {
     private final int CONVERGENCE_CONSTANT = 10;
     private final int BULLY_TIMEOUT = 2000;
     private final double SOFT_MAX_TEMPERATURE = 1.0;
+    private final int HEARTBEAT_TIMEOUT = 5000;
     
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
@@ -42,6 +44,7 @@ public final class TMan extends ComponentDefinition {
     private ArrayList<PeerAddress> tmanPrevPartners;
     private int convergenceCount = 0;
     private UUID timeoutId;
+    private UUID heartbeatTimeoutId;
     private TManConfiguration tmanConfiguration;
     private boolean electing = false;
     private PeerAddress leader = null;
@@ -49,6 +52,8 @@ public final class TMan extends ComponentDefinition {
     private Random r = new Random();
     private UtilityComparator uc;
     private int roundCounter = 0;
+    private ArrayList<PeerAddress> electionGroup;
+    private boolean imDead = false;
 
     public class TManSchedule extends Timeout {
 
@@ -76,9 +81,15 @@ public final class TMan extends ComponentDefinition {
         subscribe(handleElectionMessage, networkPort);
         subscribe(handleOKMessage, networkPort);
         subscribe(handleCoordinatorMessage, networkPort);
+        subscribe(handleHeartbeatLeader, networkPort);
+        subscribe(handleHeartbeatLeaderResponse, networkPort);
+        
         subscribe(handleElectionTimeout, timerPort);
         subscribe(handleCoordinatorTimeout, timerPort);
         subscribe(handleTManGossipTimeout, timerPort);
+        subscribe(handleHeartbeatTimeout, timerPort);
+        subscribe(handleHeartbeatLeaderTimeout, timerPort);
+        subscribe(handleLeaderSuicideTimeout, timerPort);
     }
 //-------------------------------------------------------------------	
     Handler<TManInit> handleInit = new Handler<TManInit>() {
@@ -182,11 +193,11 @@ public final class TMan extends ComponentDefinition {
     };
     
     private void startLeaderElection() {
-        ArrayList<PeerAddress> electionGroup = new ArrayList<PeerAddress>(tmanPartners);
-        electionGroup.add(self);
-        System.err.println("[ELECTION::" + self.getPeerId() + "] The election group is " + electionGroup);
+        ArrayList<PeerAddress> initialElectionGroup = new ArrayList<PeerAddress>(tmanPartners);
+        initialElectionGroup.add(self);
+        System.err.println("[ELECTION::" + self.getPeerId() + "] The election group is " + initialElectionGroup);
         for(PeerAddress peer : tmanPartners) {
-            trigger(new ThinkLeaderMessage(self, peer, electionGroup), networkPort);
+            trigger(new ThinkLeaderMessage(self, peer, initialElectionGroup), networkPort);
         }
     }
     
@@ -219,7 +230,7 @@ public final class TMan extends ComponentDefinition {
                 System.err.println("[ELECTION::" + self.getPeerId() + "] I got an election timeout!");
                 ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
                 for(PeerAddress peer : electionGroup) {
-                    trigger(new CoordinatorMessage(self, peer), networkPort);
+                    trigger(new CoordinatorMessage(self, peer, electionGroup), networkPort);
                 }
             }
         }
@@ -269,7 +280,7 @@ public final class TMan extends ComponentDefinition {
 
                     if (!sentElectionMessage) {
                         for (PeerAddress peer : electionGroup) {
-                            trigger(new CoordinatorMessage(self, peer), networkPort);
+                            trigger(new CoordinatorMessage(self, peer, electionGroup), networkPort);
                         }
                     }
                 }
@@ -301,7 +312,83 @@ public final class TMan extends ComponentDefinition {
             trigger(ct, timerPort);
             
             leader = event.getLeader();
+            electionGroup = event.getElectionGroup();
             electing = false;
+            imDead = false;
+            
+            if (self.getPeerId().compareTo(leader.getPeerId()) != 0) {
+                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+                heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
+                trigger(heartbeatTimeout, timerPort);
+            }
+            
+            if(self.getPeerId().equals(leader.getPeerId())) {
+                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(20000);
+                heartbeatTimeout.setTimeoutEvent(new LeaderSuicide(heartbeatTimeout));
+                trigger(heartbeatTimeout, timerPort);
+            }
+        }
+    };
+    
+    Handler<LeaderSuicide> handleLeaderSuicideTimeout = new Handler<LeaderSuicide>() {
+        @Override
+        public void handle(LeaderSuicide event) {
+            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am the leader and I'm killing myself gdwdgwwdtwndgntynndg...!! :( ");
+            imDead = true;
+        }
+    };
+    
+    Handler<HeartbeatTimeout> handleHeartbeatTimeout = new Handler<HeartbeatTimeout>() {
+        @Override
+        public void handle(HeartbeatTimeout event) {
+            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am sending a heartbeat to the leader (" + leader.getPeerId() + ") ");
+            trigger(new HeartbeatLeader(self, leader), networkPort);
+            
+            ScheduleTimeout st = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+            st.setTimeoutEvent(new HeartbeatLeaderTimeout(st));
+            heartbeatTimeoutId = st.getTimeoutEvent().getTimeoutId();
+            trigger(st, timerPort);
+        }
+    };
+    
+    Handler<HeartbeatLeaderTimeout> handleHeartbeatLeaderTimeout = new Handler<HeartbeatLeaderTimeout>() {
+        @Override
+        public void handle(HeartbeatLeaderTimeout event) {
+            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I got a leader heartbeat timeout!");
+            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] Srating election with group " + electionGroup + "!");
+            for (PeerAddress peer : electionGroup) {
+                if (self.getPeerId().compareTo(peer.getPeerId()) == -1) {
+                    trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
+                }
+            }
+
+            ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+            st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
+            timeoutId = st.getTimeoutEvent().getTimeoutId();
+            trigger(st, timerPort);
+        }
+    };
+    
+    Handler<HeartbeatLeader> handleHeartbeatLeader = new Handler<HeartbeatLeader>() {
+        @Override
+        public void handle(HeartbeatLeader event) {
+            if (!imDead || true) {
+                System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am the leader and I got a heartbeat from " + event.getPeerSource().getPeerId() + "!");
+                trigger(new HeartbeatLeaderResponse(self, event.getPeerSource()), networkPort);
+            }
+        }
+    };
+    
+    Handler<HeartbeatLeaderResponse> handleHeartbeatLeaderResponse = new Handler<HeartbeatLeaderResponse>() {
+        @Override
+        public void handle(HeartbeatLeaderResponse event) {
+            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I got a leader heartbeat response!");
+            CancelTimeout ct = new CancelTimeout(heartbeatTimeoutId);
+            trigger(ct, timerPort);
+            
+            ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+            heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
+            trigger(heartbeatTimeout, timerPort);
         }
     };
     
