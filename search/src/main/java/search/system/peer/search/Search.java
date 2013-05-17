@@ -2,6 +2,7 @@ package search.system.peer.search;
 
 import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
+import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
 import cyclon.system.peer.cyclon.CyclonSampleRequest;
 import cyclon.system.peer.cyclon.CyclonSampleResponse;
@@ -93,7 +94,6 @@ public final class Search extends ComponentDefinition {
     
 //-------------------------------------------------------------------	
     public Search() {
-        subscribe(handleUpdateIndexTimeout, timerPort);
         subscribe(handleIndexUpdateRequest, networkPort);
         subscribe(handleIndexUpdateResponse, networkPort);
         subscribe(handleAddEntryToLeader, networkPort);
@@ -116,45 +116,26 @@ public final class Search extends ComponentDefinition {
             num = init.getNum();
             searchConfiguration = init.getConfiguration();
             period = searchConfiguration.getPeriod();
-            
-//            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
-//            rst.setTimeoutEvent(new UpdateIndexTimeout(rst));
-//            trigger(rst, timerPort);
 
             Snapshot.updateNum(self, num);
-//            try {
-//                String id = "100";
-//                String title = "The Art of Computer Science";
-//                String magnet = "5f601f38e6bd666763da8ebad157879b230f2d5c";
-//                addEntry(id, title, magnet);
-//            } catch (IOException ex) {
-//                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-//                System.exit(-1);
-//            }
-        }
-    };
-
-    Handler<UpdateIndexTimeout> handleUpdateIndexTimeout = new Handler<UpdateIndexTimeout>() {
-        @Override
-        public void handle(UpdateIndexTimeout event) {
-            System.err.println("[" + self.getPeerAddress().getId() + "] UpdateIndexTimeout");
-            trigger(new CyclonSampleRequest(), cyclonSamplePortRequest);
         }
     };
     
-    Handler<CyclonSampleResponse> handleCyclonSample = new Handler<CyclonSampleResponse>() {
+    Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
-        public void handle(CyclonSampleResponse event) {
-            System.err.println("[" + self.getPeerAddress().getId() + "] CyclonSampleResponse (" + indexStore.size() + ")");
-            PeerAddress peer = event.getRandomPeer();
-            ArrayList<Range> missingRanges = getMissingRanges();
-            Integer lastExisting = (indexStore.isEmpty())?-1:indexStore.get(indexStore.size() - 1);
-            System.out.println("============================================================");
-            System.out.println("[DEBUG::" + self.getPeerAddress().getId() + "->" + peer.getPeerAddress().getId() + "] I need " + missingRanges.size() + " ranges and my maximum ID is " + lastExisting + "!");
-            System.out.println(missingRanges);
-            System.out.println("============================================================");
-            IndexUpdateRequest iur = new IndexUpdateRequest(self, peer, missingRanges, lastExisting);
-            trigger(iur, networkPort);
+        public void handle(CyclonSample event) {
+//            System.err.println("[INDEX::" + self.getPeerId() + "] CyclonSample (" + event.getSample() + ")");
+            if(!event.getSample().isEmpty()) {
+                PeerAddress peer = event.getSample().get(0); // PICK A PEER!!!!
+                ArrayList<Range> missingRanges = getMissingRanges();
+                Integer lastExisting = (indexStore.isEmpty())?-1:indexStore.get(indexStore.size() - 1);
+//                System.out.println("============================================================");
+//                System.out.println("[INDEX::" + self.getPeerAddress().getId() + "->" + peer.getPeerAddress().getId() + "] I need " + missingRanges.size() + " ranges and my maximum ID is " + lastExisting + "!");
+//                System.out.println(missingRanges);
+//                System.out.println("============================================================");
+                IndexUpdateRequest iur = new IndexUpdateRequest(self, peer, missingRanges, lastExisting);
+                trigger(iur, networkPort);
+            }
         }
     };
     
@@ -162,13 +143,13 @@ public final class Search extends ComponentDefinition {
         @Override
         public void handle(IndexUpdateRequest request) {
             try {
-                System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateRequest");
+//                System.err.println("[INDEX::" + self.getPeerId() + "] IndexUpdateRequest");
                 if(!indexStore.isEmpty()) {
                     ArrayList<Entry> missingEntries = getMissingEntries(request.getMissingRanges(), request.getLastExisting());
-                    System.out.println("============================================================");
-                    System.out.println("[DEBUG::" + self.getPeerAddress().getId() + "->" + request.getPeerSource().getPeerAddress().getId() + "] I have these entries:");
-                    System.out.println(missingEntries);
-                    System.out.println("============================================================");
+//                    System.out.println("============================================================");
+//                    System.out.println("[INDEX::" + self.getPeerAddress().getId() + "->" + request.getPeerSource().getPeerAddress().getId() + "] I have these entries:");
+//                    System.out.println(missingEntries);
+//                    System.out.println("============================================================");
                     IndexUpdateResponse iur = new IndexUpdateResponse(self, request.getPeerSource(), missingEntries);
                     trigger(iur, networkPort);
                 }
@@ -191,7 +172,7 @@ public final class Search extends ComponentDefinition {
             catch (IOException ex) {
                 java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
             }
-            System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateResponse (" + indexStore.size() + ")");
+//            System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateResponse (" + indexStore.size() + ")");
         }
     };
 
