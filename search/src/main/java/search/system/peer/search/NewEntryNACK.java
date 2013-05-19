@@ -6,7 +6,14 @@ import common.peer.PeerMessage;
 
 public class NewEntryNACK extends PeerMessage
 {
-    public NewEntryNACK(PeerAddress source, PeerAddress destination) {
+    private String newEntryTempID;
+
+    public NewEntryNACK(PeerAddress source, PeerAddress destination, String newEntryTempID) {
         super(source, destination);
+        this.newEntryTempID = newEntryTempID;
+    }
+
+    public String getNewEntryTempID() {
+        return newEntryTempID;
     }
 }

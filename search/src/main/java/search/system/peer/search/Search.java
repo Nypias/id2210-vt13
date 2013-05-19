@@ -4,8 +4,6 @@ import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
 import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
-import cyclon.system.peer.cyclon.CyclonSampleRequest;
-import cyclon.system.peer.cyclon.CyclonSampleResponse;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,7 +47,6 @@ import se.sics.kompics.web.WebResponse;
 import search.simulator.snapshot.Snapshot;
 import search.system.peer.AddIndexText;
 import search.system.peer.IndexPort;
-import tman.system.peer.tman.ElectionTimeout;
 import tman.system.peer.tman.TManSample;
 import tman.system.peer.tman.TManSamplePort;
 import tman.system.peer.tman.UtilityComparator;
@@ -62,6 +59,7 @@ public final class Search extends ComponentDefinition {
 
     private final double SOFT_MAX_TEMPERATURE = 1.0;
     private final int NEW_ENTRY_ACK_TIMEOUT = 3000;
+    private final int NEW_ENTRY_ADD_RETRIES = 5;
     
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
     Positive<IndexPort> indexPort = positive(IndexPort.class);
@@ -73,16 +71,15 @@ public final class Search extends ComponentDefinition {
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
 
     private HashMap<String, PendingACK> pendingResponses = new HashMap<String, PendingACK>();
+    private HashMap<String, PendingEntry> pendingEntries = new HashMap<String, PendingEntry>();
     private ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
     private PeerAddress leader = null;
-    private Random randomGenerator = new Random();
     private ArrayList<Integer> indexStore = new ArrayList<Integer>();
     private PeerAddress self;
-    private long period;
     private double num;
     private Random r = new Random();
+    private long period;
     private SearchConfiguration searchConfiguration;
-    private WebRequest tempWebRequest;
         // Apache Lucene used for searching
     StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_42);
     Directory index = new RAMDirectory();
@@ -90,7 +87,7 @@ public final class Search extends ComponentDefinition {
 
     private int latestMissingIndexValue = 0;
     private int nextIndexEntryID = 0;
-    private int addEntryTriesCounter = 0;
+    private int pendingEntryID = 0;
     
 //-------------------------------------------------------------------	
     public Search() {
@@ -126,7 +123,7 @@ public final class Search extends ComponentDefinition {
         public void handle(CyclonSample event) {
 //            System.err.println("[INDEX::" + self.getPeerId() + "] CyclonSample (" + event.getSample() + ")");
             if(!event.getSample().isEmpty()) {
-                PeerAddress peer = event.getSample().get(0); // PICK A PEER!!!!
+                PeerAddress peer = event.getSample().get(0); // TODO PICK A PEER!!!!
                 ArrayList<Range> missingRanges = getMissingRanges();
                 Integer lastExisting = (indexStore.isEmpty())?-1:indexStore.get(indexStore.size() - 1);
 //                System.out.println("============================================================");
@@ -190,17 +187,15 @@ public final class Search extends ComponentDefinition {
                 response = new WebResponse(searchPageHtml(args[1]), event, 1, 1);
                 trigger(response, webPort);
             } else if (args[0].compareToIgnoreCase("add") == 0) {
-                response = new WebResponse(addEntryHtml(args[1], args[2], args[3]), event, 1, 1);
-                trigger(response, webPort);
+                Entry newEntry = new Entry(String.valueOf(pendingEntryID), args[1], args[2]);
+                pendingEntries.put(String.valueOf(pendingEntryID), new PendingEntry(String.valueOf(pendingEntryID++), event, newEntry));
+                handleNewEntry(newEntry);
             } else if (args[0].compareToIgnoreCase("jollyroger") == 0) {
                 response = new WebResponse(jollyRogerHTML(), event, 1, 1);
                 trigger(response, webPort);
             } else if (args[0].compareToIgnoreCase("jrsearch") == 0) {
                 response = new WebResponse(jrSearchPageHtml(args[1]), event, 1, 1);
                 trigger(response, webPort);
-            } else if (args[0].compareToIgnoreCase("test") == 0) {
-                tempWebRequest = event;
-                handleNewEntry();
             } else {
                 response = new WebResponse(searchPageHtml(event.getTarget()), event, 1, 1);
                 trigger(response, webPort);
@@ -208,7 +203,7 @@ public final class Search extends ComponentDefinition {
         }
     };
     
-    private void handleNewEntry() {
+    private void handleNewEntry(Entry entry) {
         PeerAddress targetPeer;
         if(leader != null) {
             System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to the leader (" + leader.getPeerId() + ")");
@@ -218,7 +213,7 @@ public final class Search extends ComponentDefinition {
             targetPeer = getSoftMaxAddress(tmanPartners);
             System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Forwarding new entry to the leader through " + targetPeer.getPeerId());
         }
-        trigger(new ForwardEntryToLeader(self, targetPeer, self, new Entry("Jolly Roger", "1SFG2G3424IUIH3G2H3GR2HU89U2")), networkPort);
+        trigger(new ForwardEntryToLeader(self, targetPeer, self, entry), networkPort);
     }
     
     Handler<ForwardEntryToLeader> handleAddEntryToLeader = new Handler<ForwardEntryToLeader>() {
@@ -230,6 +225,7 @@ public final class Search extends ComponentDefinition {
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I am the leader and I received a new entry!");
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to " + tmanPartners);
                     Entry newEntry = event.getNewEntry();
+                    String tempID = newEntry.getId();
                     try {
                         newEntry.setId((nextIndexEntryID++) + "");
                         
@@ -245,11 +241,12 @@ public final class Search extends ComponentDefinition {
                         UUID timeoutID = st.getTimeoutEvent().getTimeoutId();
                         trigger(st, timerPort);
 
-                        pendingResponses.put(newEntry.getId(), new PendingACK(timeoutID, event.getRequestSource()));
+                        pendingResponses.put(newEntry.getId(), new PendingACK(timeoutID, event.getRequestSource(), tempID));
+                        System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Created PendingACK for " + newEntry.getId() + " with timeout " + timeoutID);
                     }
                     catch (IOException ex) {
                         nextIndexEntryID--;
-                        trigger(new NewEntryNACK(self, event.getRequestSource()), networkPort);
+                        trigger(new NewEntryNACK(self, event.getRequestSource(), tempID), networkPort);
                     }
                 }
                 else {
@@ -264,15 +261,16 @@ public final class Search extends ComponentDefinition {
     
     Handler<AddEntryACK> handleAddEntryACK = new Handler<AddEntryACK>() {
         @Override
-        public void handle(AddEntryACK event) {            
-            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I got an acknowledgment back from " + event.getPeerSource());
+        public void handle(AddEntryACK event) {
             PendingACK pack = pendingResponses.get(event.getEntryID());
             // Pack can be null because we can reach quorum before all nodes ACK their adds.
             if(pack != null) {
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I got an acknowledgment back from " + event.getPeerSource() + " for " + event.getEntryID());
                 pack.incReceivedACKs();
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] " + pack.getReceivedACKs() + " / " + ((tmanPartners.size() / 2) + 1) + " tmanPartners " + tmanPartners);
                 if(pack.getReceivedACKs() >= ((tmanPartners.size() / 2) + 1)) {
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] We have reached quorum of ACKs (" + pack.getReceivedACKs() + "/" + tmanPartners.size() + ")");
-                    trigger(new NewEntryACK(self, pack.getRequestSource()), networkPort);
+                    trigger(new NewEntryACK(self, pack.getRequestSource(), pack.getNewEntryTempID()), networkPort);
                     CancelTimeout ct = new CancelTimeout(pack.getTimeoutID());
                     trigger(ct, timerPort);
                     pendingResponses.remove(event.getEntryID());
@@ -284,12 +282,13 @@ public final class Search extends ComponentDefinition {
     Handler<AddNewEntryTimeout> handleAddNewEntryTimeout = new Handler<AddNewEntryTimeout>() {
         @Override
         public void handle(AddNewEntryTimeout event) {
-            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] AddEntry timed out!");
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] AddEntry for (" + event.getEntryID() + ") timed out with timer " + event.getTimeoutId());
             PendingACK pack = pendingResponses.get(event.getEntryID());
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] " + pack.getReceivedACKs() + " / " + ((tmanPartners.size() / 2) + 1));
             if(pack.getReceivedACKs() < ((tmanPartners.size() / 2) + 1)) {
-                // Remove added entry from index
-                nextIndexEntryID--;
-                trigger(new NewEntryNACK(self, pack.getRequestSource()), networkPort);
+                // TODO Remove added entry from index and uncomment the line below!
+                // nextIndexEntryID--;
+                trigger(new NewEntryNACK(self, pack.getRequestSource(), pack.getNewEntryTempID()), networkPort);
             }
         }
     };
@@ -297,21 +296,41 @@ public final class Search extends ComponentDefinition {
     Handler<NewEntryACK> handleNewEntryACK = new Handler<NewEntryACK>() {
         @Override
         public void handle(NewEntryACK event) {
-            WebResponse response = new WebResponse("New entry successfully added and replicated.", tempWebRequest, 1, 1);
-            trigger(response, webPort);
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got ACK for " + event.getNewEntryTempID());
+            PendingEntry pen = pendingEntries.get(event.getNewEntryTempID());
+            if(pen.getWebRequest() == null) {
+                // If the add request came from the Simulator don't send web content back
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] New entry (" + pen.getPendingEntryID() + ") successfully added and replicated.");
+            } else {
+                // If the add request came from the browser respond through Jetty
+                WebResponse response = new WebResponse("New entry (" + pen.getPendingEntryID() + ") successfully added and replicated.", pen.getWebRequest(), 1, 1);
+                trigger(response, webPort);
+            }
+            pendingEntries.remove(event.getNewEntryTempID());
         }
     };
     
     Handler<NewEntryNACK> handleNewEntryNACK = new Handler<NewEntryNACK>() {
         @Override
         public void handle(NewEntryNACK event) {
-            addEntryTriesCounter++;
-            if (addEntryTriesCounter > 5) {
-                WebResponse response = new WebResponse("New entry successfully added and replicated!", tempWebRequest, 1, 1);
-                trigger(response, webPort);
+            PendingEntry pen = pendingEntries.get(event.getNewEntryTempID());
+            pen.incAddEntryTriesCounter();
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] New entry failed attempt (" + pen.getAddEntryTriesCounter() + " / " + NEW_ENTRY_ADD_RETRIES + ")");
+            if (pen.getAddEntryTriesCounter() > NEW_ENTRY_ADD_RETRIES) {
+                pendingEntries.remove(event.getNewEntryTempID());
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Removed " + event.getNewEntryTempID() + " from pending entries list!");
+                if (pen.getWebRequest() == null) {
+                    // If the add request came from the Simulator don't send web content back
+                    System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] New entry (" + pen.getPendingEntryID() + ") NOT added after " + NEW_ENTRY_ADD_RETRIES + " tries!");
+                } else {
+                    // If the add request came from the browser respond through Jetty
+                    WebResponse response = new WebResponse("New entry (" + pen.getPendingEntryID() + ") NOT added after " + NEW_ENTRY_ADD_RETRIES + " tries!", pen.getWebRequest(), 1, 1);
+                    trigger(response, webPort);
+                }
             }
             else {
-                handleNewEntry();
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Retrying " + event.getNewEntryTempID());
+                handleNewEntry(pen.getEntry());
             }
         }
     };
@@ -540,9 +559,12 @@ public final class Search extends ComponentDefinition {
     Handler<TManSample> handleTManSample = new Handler<TManSample>() {
         @Override
         public void handle(TManSample event) {
-            // receive a new list of neighbours
-            tmanPartners.clear();
-            tmanPartners.addAll(event.getSample());
+            // receive a new list of TMan partners
+            ArrayList<PeerAddress> sample = new ArrayList<PeerAddress>(event.getSample());
+//            System.err.println("[SERMAN::" + self.getPeerId() + "] Have " + tmanPartners);
+//            System.err.println("[SERMAN::" + self.getPeerId() + "] TMan sent " + sample);
+            tmanPartners = sample;
+//            System.err.println("[SERMAN::" + self.getPeerId() + "] Got " + tmanPartners + " from TMan component");
             leader = event.getLeader();
         }
     };
@@ -557,7 +579,7 @@ public final class Search extends ComponentDefinition {
                 System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Acknowledged AddEntry!");
             }
             catch (IOException ex) {
-                System.err.println("[SEARCH::" + self.getPeerId() + "] FAILED in adding new entry!");
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Failed in adding new entry!");
             }
         }
     };
@@ -567,17 +589,15 @@ public final class Search extends ComponentDefinition {
         @Override
         public void handle(AddIndexText event) {
             String id = String.valueOf(event.getID());
-            logger.info("[" + self.getPeerAddress().getId() + "] Adding index entry " + id + "::" + event.getText() + " (" + event.getMagnetLink() + ")!");
-            try {
-                addEntry(id, event.getText(), event.getMagnetLink());
-            } catch (IOException ex) {
-                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-                throw new IllegalArgumentException(ex.getMessage());
-            }
+            System.err.println("[" + self.getPeerAddress().getId() + "] Adding index entry " + id + "::" + event.getText() + " (" + event.getMagnetLink() + ")!");
+            Entry newEntry = new Entry(String.valueOf(pendingEntryID), event.getText(), event.getMagnetLink());
+            System.err.println("[" + self.getPeerAddress().getId() + "] Added pending entry " + pendingEntryID);
+            pendingEntries.put(String.valueOf(pendingEntryID), new PendingEntry(String.valueOf(pendingEntryID++), null, newEntry));
+            handleNewEntry(newEntry);
         }
     };
     
-    // TODO - if you call this method with a list of entries, it will
+    // If you call this method with a list of entries, it will
     // return a single node, weighted towards the 'best' node (as defined by
     // ComparatorByID) with the temperature controlling the weighting.
     // A temperature of '1.0' will be greedy and always return the best node.

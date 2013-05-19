@@ -16,7 +16,7 @@ public class TManSample extends Event
     }
 
     public TManSample(ArrayList<PeerAddress> partners, PeerAddress leader) {
-        this.partners = partners;
+        this.partners.addAll(partners);
         this.leader = leader;
     }
 

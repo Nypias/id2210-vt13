@@ -16,7 +16,6 @@ import se.sics.kompics.ComponentDefinition;
 import se.sics.kompics.Handler;
 import se.sics.kompics.Negative;
 import se.sics.kompics.Positive;
-import se.sics.kompics.Stop;
 import se.sics.kompics.network.Network;
 import se.sics.kompics.timer.CancelTimeout;
 import se.sics.kompics.timer.SchedulePeriodicTimeout;
@@ -28,6 +27,8 @@ import tman.simulator.snapshot.Snapshot;
 
 public final class TMan extends ComponentDefinition {
 
+    private static final Object tmanPartnersLock = new Object();
+    
     private final int SIMILARITY_LIST_SIZE = 3;
     private final int CONVERGENCE_CONSTANT = 10;
     private final int BULLY_TIMEOUT = 2000;
@@ -116,7 +117,9 @@ public final class TMan extends ComponentDefinition {
             Snapshot.updateTManPartners(self, tmanPartners);
 
             // Publish sample to connected components
-            trigger(new TManSample(tmanPartners, leader), tmanPartnersPort);
+            synchronized (tmanPartnersLock) {
+                trigger(new TManSample(tmanPartners, leader), tmanPartnersPort);
+            }
 //            System.err.println("[TMAN::" + self.getPeerId() + "] Sent out " + tmanPartners + " to Search component");
         }
     };
@@ -135,17 +138,19 @@ public final class TMan extends ComponentDefinition {
 //                System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
                 // Loop through the provided partners and select the ones that we prefer
 
-                tmanPartners.addAll(cyclonPartners);
-                tmanPartners = removeDuplicates(tmanPartners);
-                if (tmanPartners.contains(self)) {
-                    tmanPartners.remove(self);
+                synchronized (tmanPartnersLock) {
+                    tmanPartners.addAll(cyclonPartners);
+                    tmanPartners = removeDuplicates(tmanPartners);
+                    if (tmanPartners.contains(self)) {
+                        tmanPartners.remove(self);
+                    }
+                    
+                    Collections.sort(tmanPartners, uc);
+                    if (tmanPartners.size() > SIMILARITY_LIST_SIZE) {
+                        tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
+                    }
                 }
-
-                Collections.sort(tmanPartners, uc);
-                if (tmanPartners.size() > SIMILARITY_LIST_SIZE) {
-                    tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
-                }
-
+                
 //            for (PeerAddress cyclonPeer : partners) {
 //                // If the peer is not already in our list
 //                if (!tmanPartners.contains(cyclonPeer)) {
@@ -460,21 +465,23 @@ public final class TMan extends ComponentDefinition {
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] Received " + event.getSimilaritySet() + " from " + event.getPeerSource());
 //            merge(event.getSimilaritySet());
             
-            tmanPartners.addAll(event.getSimilaritySet());
-            tmanPartners = removeDuplicates(tmanPartners);
-            if(tmanPartners.contains(self)) {
-                tmanPartners.remove(self);
-            }
-            
-            Collections.sort(tmanPartners, uc);
-            if(tmanPartners.size() > SIMILARITY_LIST_SIZE) {
-                tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
-            }
+            synchronized (tmanPartnersLock) {
+                tmanPartners.addAll(event.getSimilaritySet());
+                tmanPartners = removeDuplicates(tmanPartners);
+                if (tmanPartners.contains(self)) {
+                    tmanPartners.remove(self);
+                }
+
+                Collections.sort(tmanPartners, uc);
+                if (tmanPartners.size() > SIMILARITY_LIST_SIZE) {
+                    tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
+                }
 
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] My partners now are " + tmanPartners);
-            ArrayList<PeerAddress> shuffleView = prepareShuffleView(tmanPartners, event.getPeerSource());
+                ArrayList<PeerAddress> shuffleView = prepareShuffleView(tmanPartners, event.getPeerSource());
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] I am sending " + shuffleView + " to " + event.getPeerSource());
-            trigger(new ExchangeMsg.Response(UUID.randomUUID(), shuffleView, self, event.getPeerSource()), networkPort);
+                trigger(new ExchangeMsg.Response(UUID.randomUUID(), shuffleView, self, event.getPeerSource()), networkPort);
+            }
         }
     };
     
@@ -484,15 +491,17 @@ public final class TMan extends ComponentDefinition {
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] My partners are " + tmanPartners);
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] Received " + event.getSelectedBuffer() + " from " + event.getPeerSource());
 //            merge(event.getSelectedBuffer());
-            tmanPartners.addAll(event.getSimilaritySet());
-            tmanPartners = removeDuplicates(tmanPartners);
-            if(tmanPartners.contains(self)) {
-                tmanPartners.remove(self);
-            }
-            
-            Collections.sort(tmanPartners, uc);
-            if(tmanPartners.size() > SIMILARITY_LIST_SIZE) {
-                tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
+            synchronized (tmanPartnersLock) {
+                tmanPartners.addAll(event.getSimilaritySet());
+                tmanPartners = removeDuplicates(tmanPartners);
+                if (tmanPartners.contains(self)) {
+                    tmanPartners.remove(self);
+                }
+
+                Collections.sort(tmanPartners, uc);
+                if (tmanPartners.size() > SIMILARITY_LIST_SIZE) {
+                    tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
+                }
             }
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] My partners now are " + tmanPartners);
         }
