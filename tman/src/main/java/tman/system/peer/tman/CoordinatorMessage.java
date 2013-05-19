@@ -5,21 +5,50 @@ import common.peer.PeerMessage;
 import java.util.ArrayList;
 
 
+/**
+ * Message sent by a peer to inform the election group that it is the leader.
+ */
 public class CoordinatorMessage extends PeerMessage
 {
+    /**
+     * The address of the leader.
+     */
     private PeerAddress leader;
+    /**
+     * The list of peers that are part of the election.
+     */
     private ArrayList<PeerAddress> electionGroup;
 
+    /**
+     * Create a new CoordinatorMessage specifying the peer that sends the
+     * message, the peer that will receive the messages and the list of peers
+     * that are part of the (re)starting election.
+     *
+     * @param source The peer that sends the message.
+     * @param destination The peer that will receive the message.
+     * @param electionGroup The list of peers that are part of the ongoing
+     * election.
+     */
     public CoordinatorMessage(PeerAddress source, PeerAddress destination, ArrayList<PeerAddress> electionGroup) {
         super(source, destination);
         this.leader = source;
         this.electionGroup = electionGroup;
     }
 
+    /**
+     * Get the new leader selected.
+     *
+     * @return The new leader.
+     */
     public PeerAddress getLeader() {
         return leader;
     }
-    
+
+    /**
+     * Get the list of peers that are part of the election.
+     *
+     * @return The list of peers that are part of the election.
+     */
     public ArrayList<PeerAddress> getElectionGroup() {
         return electionGroup;
     }

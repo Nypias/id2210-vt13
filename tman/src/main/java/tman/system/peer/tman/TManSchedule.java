@@ -6,25 +6,25 @@ import se.sics.kompics.timer.Timeout;
 
 
 /**
- * Timeout to send a heartbeat to the leader.
+ * Timeout to publish gradient partners to other components.
  */
-public class HeartbeatTimeout extends Timeout
+public class TManSchedule extends Timeout
 {
     /**
-     * Create a new HeartbeatTimeout specifying the SchedulePeriodicTimeout.
+     * Create a new TManSchedule specifying the SchedulePeriodicTimeout.
      *
      * @param request The SchedulePeriodicTimeout.
      */
-    public HeartbeatTimeout(SchedulePeriodicTimeout request) {
+    public TManSchedule(SchedulePeriodicTimeout request) {
         super(request);
     }
 
     /**
-     * Create a new HeartbeatTimeout specifying the ScheduleTimeout.
+     * Create a new TManSchedule specifying the ScheduleTimeout.
      *
      * @param request The ScheduleTimeout.
      */
-    public HeartbeatTimeout(ScheduleTimeout request) {
+    public TManSchedule(ScheduleTimeout request) {
         super(request);
     }
 }
