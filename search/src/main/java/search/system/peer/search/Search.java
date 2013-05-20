@@ -7,9 +7,10 @@ import cyclon.system.peer.cyclon.CyclonSamplePort;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.logging.Level;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
@@ -47,6 +48,7 @@ import se.sics.kompics.web.WebResponse;
 import search.simulator.snapshot.Snapshot;
 import search.system.peer.AddIndexText;
 import search.system.peer.IndexPort;
+import tman.simulator.snapshot.Stats;
 import tman.system.peer.tman.TManSample;
 import tman.system.peer.tman.TManSamplePort;
 import tman.system.peer.tman.UtilityComparator;
@@ -70,8 +72,8 @@ public final class Search extends ComponentDefinition {
     Negative<CyclonSamplePort> cyclonSamplePortRequest = negative(CyclonSamplePort.class);
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
 
-    private HashMap<String, PendingACK> pendingResponses = new HashMap<String, PendingACK>();
-    private HashMap<String, PendingEntry> pendingEntries = new HashMap<String, PendingEntry>();
+    private ConcurrentMap<String, PendingACK> pendingResponses = new ConcurrentHashMap<String, PendingACK>();
+    private ConcurrentMap<String, PendingEntry> pendingEntries = new ConcurrentHashMap<String, PendingEntry>();
     private ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
     private PeerAddress leader = null;
     private ArrayList<Integer> indexStore = new ArrayList<Integer>();
@@ -88,6 +90,7 @@ public final class Search extends ComponentDefinition {
     private int latestMissingIndexValue = 0;
     private int nextIndexEntryID = 0;
     private int pendingEntryID = 0;
+    private int disseminationRounds = 0;
     
 //-------------------------------------------------------------------	
     public Search() {
@@ -121,6 +124,7 @@ public final class Search extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
+            disseminationRounds++;
 //            System.err.println("[INDEX::" + self.getPeerId() + "] CyclonSample (" + event.getSample() + ")");
             if(!event.getSample().isEmpty()) {
                 PeerAddress peer = event.getSample().get(0); // TODO PICK A PEER!!!!
@@ -170,6 +174,11 @@ public final class Search extends ComponentDefinition {
                 java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
             }
 //            System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateResponse (" + indexStore.size() + ")");
+
+
+            if (countIndexEntries(index) == 100) {
+                Stats.registerCompleteIndex(disseminationRounds);
+            }
         }
     };
 
@@ -196,7 +205,16 @@ public final class Search extends ComponentDefinition {
             } else if (args[0].compareToIgnoreCase("jrsearch") == 0) {
                 response = new WebResponse(jrSearchPageHtml(args[1]), event, 1, 1);
                 trigger(response, webPort);
-            } else {
+            } else if (args[0].compareToIgnoreCase("reportLeader") == 0) {
+                Stats.reportLeaderSearchStats();
+                response = new WebResponse("Reported leader search statistics!", event, 1, 1);
+                trigger(response, webPort);
+            } else if (args[0].compareToIgnoreCase("reportIndex") == 0) {
+                Stats.reportIndexDisseminationStats();
+                response = new WebResponse("Reported index dissemination statistics!", event, 1, 1);
+                trigger(response, webPort);
+            }
+            else {
                 response = new WebResponse(searchPageHtml(event.getTarget()), event, 1, 1);
                 trigger(response, webPort);
             }
@@ -213,17 +231,20 @@ public final class Search extends ComponentDefinition {
             targetPeer = getSoftMaxAddress(tmanPartners);
             System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Forwarding new entry to the leader through " + targetPeer.getPeerId());
         }
-        trigger(new ForwardEntryToLeader(self, targetPeer, self, entry), networkPort);
+        trigger(new ForwardEntryToLeader(self, targetPeer, self, entry, 0), networkPort);
     }
     
     Handler<ForwardEntryToLeader> handleAddEntryToLeader = new Handler<ForwardEntryToLeader>() {
         @Override
         public void handle(ForwardEntryToLeader event) {
-            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got forward message from " + event.getPeerSource().getPeerId());
+//            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got forward message from " + event.getPeerSource().getPeerId());
             if(leader != null) {
                 if(self.getPeerId().equals(leader.getPeerId())) {
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I am the leader and I received a new entry!");
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to " + tmanPartners);
+                    
+                    Stats.registerLeaderSearchStats(event.getHops());
+                    
                     Entry newEntry = event.getNewEntry();
                     String tempID = newEntry.getId();
                     try {
@@ -231,10 +252,6 @@ public final class Search extends ComponentDefinition {
                         
                         // Add to ourselves
                         addEntry(newEntry);
-
-                        for (PeerAddress peer : tmanPartners) {
-                            trigger(new AddEntry(self, peer, newEntry), networkPort);
-                        }
                         
                         ScheduleTimeout st = new ScheduleTimeout(NEW_ENTRY_ACK_TIMEOUT);
                         st.setTimeoutEvent(new AddNewEntryTimeout(st, newEntry.getId()));
@@ -243,6 +260,10 @@ public final class Search extends ComponentDefinition {
 
                         pendingResponses.put(newEntry.getId(), new PendingACK(timeoutID, event.getRequestSource(), tempID));
                         System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Created PendingACK for " + newEntry.getId() + " with timeout " + timeoutID);
+                        
+                        for (PeerAddress peer : tmanPartners) {
+                            trigger(new AddEntry(self, peer, newEntry), networkPort);
+                        }
                     }
                     catch (IOException ex) {
                         nextIndexEntryID--;
@@ -250,11 +271,11 @@ public final class Search extends ComponentDefinition {
                     }
                 }
                 else {
-                    trigger(new ForwardEntryToLeader(self, leader, event.getRequestSource(), event.getNewEntry()), networkPort);
+                    trigger(new ForwardEntryToLeader(self, leader, event.getRequestSource(), event.getNewEntry(), (event.getHops() + 1)), networkPort);
                 }
             }
             else {
-                trigger(new ForwardEntryToLeader(self, getSoftMaxAddress(tmanPartners), event.getRequestSource(), event.getNewEntry()), networkPort);
+                trigger(new ForwardEntryToLeader(self, getSoftMaxAddress(tmanPartners), event.getRequestSource(), event.getNewEntry(), (event.getHops() + 1)), networkPort);
             }
         }
     };
@@ -596,6 +617,33 @@ public final class Search extends ComponentDefinition {
             handleNewEntry(newEntry);
         }
     };
+    
+    private int countIndexEntries(Directory index) {
+        int entries = 0;
+        try {
+            if (index.listAll().length > 0) {
+                Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse("AXD");
+                IndexSearcher searcher = null;
+                IndexReader reader = null;
+
+                reader = DirectoryReader.open(index);
+                searcher = new IndexSearcher(reader);
+
+                int hitsPerPage = 1000;
+                TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
+
+                searcher.search(q, collector);
+                ScoreDoc[] hits = collector.topDocs().scoreDocs;
+                entries = hits.length;
+                reader.close();
+            }
+        }
+        catch (Exception ex) {
+            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+            System.exit(-1);
+        }
+        return entries ;
+    }
     
     // If you call this method with a list of entries, it will
     // return a single node, weighted towards the 'best' node (as defined by

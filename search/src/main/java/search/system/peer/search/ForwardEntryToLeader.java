@@ -6,13 +6,15 @@ import common.peer.PeerMessage;
 
 public class ForwardEntryToLeader extends PeerMessage
 {
-    Entry newEntry;
-    PeerAddress requestSource;
+    private int hops;
+    private Entry newEntry;
+    private PeerAddress requestSource;
 
-    public ForwardEntryToLeader(PeerAddress source, PeerAddress destination, PeerAddress requestSource, Entry newEntry) {
+    public ForwardEntryToLeader(PeerAddress source, PeerAddress destination, PeerAddress requestSource, Entry newEntry, int hops) {
         super(source, destination);
         this.newEntry = newEntry;
         this.requestSource = requestSource;
+        this.hops = hops;
     }
 
     public Entry getNewEntry() {
@@ -21,5 +23,13 @@ public class ForwardEntryToLeader extends PeerMessage
 
     public PeerAddress getRequestSource() {
         return requestSource;
+    }
+
+    public int getHops() {
+        return hops;
+    }
+
+    public void setHops(int hops) {
+        this.hops = hops;
     }
 }

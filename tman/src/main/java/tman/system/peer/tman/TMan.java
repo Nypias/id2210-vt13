@@ -20,6 +20,7 @@ import se.sics.kompics.timer.SchedulePeriodicTimeout;
 import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timer;
 import tman.simulator.snapshot.Snapshot;
+import tman.simulator.snapshot.Stats;
 
 
 /**
@@ -29,15 +30,18 @@ import tman.simulator.snapshot.Snapshot;
 public final class TMan extends ComponentDefinition
 {
     private static final Object tmanPartnersLock = new Object();
+    
     private final int SIMILARITY_LIST_SIZE = 3;
     private final int CONVERGENCE_CONSTANT = 10;
     private final int BULLY_TIMEOUT = 2000;
     private final double SOFT_MAX_TEMPERATURE = 1.0;
     private final int HEARTBEAT_TIMEOUT = 5000;
+    
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
     Positive<Network> networkPort = positive(Network.class);
     Positive<Timer> timerPort = positive(Timer.class);
+    
     private long period;
     private PeerAddress self;
     private ArrayList<PeerAddress> tmanPartners;
@@ -145,7 +149,7 @@ public final class TMan extends ComponentDefinition
         public void handle(CyclonSample event) {
             roundCounter++;
             ArrayList<PeerAddress> cyclonPartners = event.getSample();
-            //            System.err.println("=====================================================================================");
+//            System.err.println("=====================================================================================");
 //            System.err.println("[TMAN::" + self.getPeerId() + "] Cyclon Partners:" + cyclonPartners);
 //            System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners:" + tmanPartners);
             // If provided list is empty don't do anything
@@ -174,13 +178,11 @@ public final class TMan extends ComponentDefinition
                     convergenceCount = 0;
                 }
 
-//                    System.out.println("[" + self.getPeerId() + "] Convergence count is " + convergenceCount);
-
                 if (!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
                     // Check if a leader exists first and if he is smaller than us we can start the election!
 
                     electing = true;
-                    System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader!");
+                    System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader (" + (roundCounter - CONVERGENCE_CONSTANT) + ")!");
                     startLeaderElection();
                 }
 
@@ -213,6 +215,7 @@ public final class TMan extends ComponentDefinition
                         trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
                     }
                 }
+                Stats.registerElectionMessages(electionGroup.size());
 
                 ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
                 st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
@@ -240,6 +243,7 @@ public final class TMan extends ComponentDefinition
                 for (PeerAddress peer : electionGroup) {
                     trigger(new CoordinatorMessage(self, peer, electionGroup), networkPort);
                 }
+                Stats.registerElectionMessages(electionGroup.size());
             }
         }
     };
@@ -261,6 +265,7 @@ public final class TMan extends ComponentDefinition
                 for (PeerAddress peer : electionGroup) {
                     if (self.getPeerId().compareTo(peer.getPeerId()) == -1) {
                         trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
+                        Stats.registerElectionMessage();
 
                         ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
                         st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
@@ -290,11 +295,13 @@ public final class TMan extends ComponentDefinition
                 BigInteger sender = event.getPeerSource().getPeerId();
                 if (sender.compareTo(self.getPeerId()) == -1) {
                     trigger(new OKMessage(self, event.getPeerSource(), event.getElectionGroup()), networkPort);
+                    Stats.registerElectionMessage();
                     ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
                     for (PeerAddress peer : electionGroup) {
                         if (self.getPeerId().compareTo(peer.getPeerId()) == -1) {
                             sentElectionMessage = true;
                             trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
+                            Stats.registerElectionMessage();
 
                             ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
                             st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
@@ -307,6 +314,7 @@ public final class TMan extends ComponentDefinition
                         for (PeerAddress peer : electionGroup) {
                             trigger(new CoordinatorMessage(self, peer, electionGroup), networkPort);
                         }
+                        Stats.registerElectionMessages(electionGroup.size());
                     }
                 }
             }
@@ -362,6 +370,8 @@ public final class TMan extends ComponentDefinition
                 heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
                 trigger(heartbeatTimeout, timerPort);
             }
+            
+            Stats.reportElectionMessages();
 
             // SUICIDE
 //            if(self.getPeerId().equals(leader.getPeerId())) {
@@ -568,6 +578,9 @@ public final class TMan extends ComponentDefinition
         for (PeerAddress peer : tmanPartners) {
             trigger(new ThinkLeaderMessage(self, peer, initialElectionGroup), networkPort);
         }
+        
+        Stats.clearElectionMessages();
+        Stats.registerElectionMessages(tmanPartners.size());
     }
 
     /**
