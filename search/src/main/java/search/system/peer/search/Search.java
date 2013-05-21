@@ -243,7 +243,7 @@ public final class Search extends ComponentDefinition {
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I am the leader and I received a new entry!");
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to " + tmanPartners);
                     
-                    Stats.registerLeaderSearchStats(event.getHops());
+                    Stats.registerLeaderSearchStats(event.getHops() + 1);
                     
                     Entry newEntry = event.getNewEntry();
                     String tempID = newEntry.getId();
