@@ -124,7 +124,6 @@ public final class Search extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
-            disseminationRounds++;
 //            System.err.println("[INDEX::" + self.getPeerId() + "] CyclonSample (" + event.getSample() + ")");
             if(!event.getSample().isEmpty()) {
                 PeerAddress peer = event.getSample().get(0); // TODO PICK A PEER!!!!
@@ -165,6 +164,10 @@ public final class Search extends ComponentDefinition {
     {
         @Override
         public void handle(IndexUpdateResponse response) {
+            if(!response.getEntries().isEmpty()) {
+                disseminationRounds++;
+            }
+            
             try {
                 for (Entry entry : response.getEntries()) {
                     addEntry(entry.getId(), entry.getTitle(), entry.getMagnetLink());
@@ -176,7 +179,7 @@ public final class Search extends ComponentDefinition {
 //            System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateResponse (" + indexStore.size() + ")");
 
 
-            if (countIndexEntries(index) == 100) {
+            if (countIndexEntries(index) == 500) {
                 Stats.registerCompleteIndex(disseminationRounds);
             }
         }
