@@ -62,6 +62,7 @@ public final class Search extends ComponentDefinition {
     private final double SOFT_MAX_TEMPERATURE = 1.0;
     private final int NEW_ENTRY_ACK_TIMEOUT = 3000;
     private final int NEW_ENTRY_ADD_RETRIES = 5;
+    private final int NUMBER_OF_ENTRIES = 500;
     
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
     Positive<IndexPort> indexPort = positive(IndexPort.class);
@@ -179,7 +180,7 @@ public final class Search extends ComponentDefinition {
 //            System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateResponse (" + indexStore.size() + ")");
 
 
-            if (countIndexEntries(index) == 500) {
+            if (countIndexEntries(index) == NUMBER_OF_ENTRIES) {
                 Stats.registerCompleteIndex(disseminationRounds);
             }
         }

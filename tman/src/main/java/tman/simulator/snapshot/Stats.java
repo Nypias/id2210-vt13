@@ -8,7 +8,7 @@ import java.util.ArrayList;
  */
 public class Stats
 {
-    private static final int NUMBER_OF_PEERS = 50;
+    private static final int NUMBER_OF_PEERS = 200;
     
     private static boolean reported = false;
     private static int electionMessages = 0;

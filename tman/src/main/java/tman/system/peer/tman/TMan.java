@@ -31,7 +31,7 @@ public final class TMan extends ComponentDefinition
 {
     private static final Object tmanPartnersLock = new Object();
     
-    private final int SIMILARITY_LIST_SIZE = 3;
+    private final int SIMILARITY_LIST_SIZE = 10;
     private final int CONVERGENCE_CONSTANT = 10;
     private final int BULLY_TIMEOUT = 2000;
     private final double SOFT_MAX_TEMPERATURE = 1.0;
