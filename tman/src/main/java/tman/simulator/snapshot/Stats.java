@@ -47,7 +47,10 @@ public class Stats
             indexDissemninationStats.add(new Integer(rounds));
         } else if(indexDissemninationStats.size() == NUMBER_OF_PEERS && !reported) {
             reported = true;
-            System.err.println("[STATS] The index was disseminated to " + indexDissemninationStats.size() + " peers in " + maximum(indexDissemninationStats) + " rounds!");
+            System.err.println("[STATS] The index was disseminated to " + indexDissemninationStats.size() + " peers in : ");
+            System.err.println("Maximum : " + maximum(indexDissemninationStats));
+            System.err.println("Average : " + average(indexDissemninationStats));
+            System.err.println("Minimum : " + minimum(indexDissemninationStats));
         }
     }
     
