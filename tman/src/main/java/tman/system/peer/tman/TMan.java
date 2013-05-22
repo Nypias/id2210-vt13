@@ -2,6 +2,7 @@ package tman.system.peer.tman;
 
 import common.configuration.TManConfiguration;
 import common.peer.PeerAddress;
+import common.simulation.Stats;
 import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
 import java.math.BigInteger;
@@ -20,7 +21,6 @@ import se.sics.kompics.timer.SchedulePeriodicTimeout;
 import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timer;
 import tman.simulator.snapshot.Snapshot;
-import tman.simulator.snapshot.Stats;
 
 
 /**
@@ -31,7 +31,7 @@ public final class TMan extends ComponentDefinition
 {
     private static final Object tmanPartnersLock = new Object();
     
-    private final int SIMILARITY_LIST_SIZE = 10;
+    private final int SIMILARITY_LIST_SIZE = 5;
     private final int CONVERGENCE_CONSTANT = 10;
     private final int BULLY_TIMEOUT = 2000;
     private final double SOFT_MAX_TEMPERATURE = 1.0;
@@ -57,7 +57,6 @@ public final class TMan extends ComponentDefinition
     private UtilityComparator uc;
     private int roundCounter = 0;
     private ArrayList<PeerAddress> electionGroup;
-//    private boolean imDead = false;
 
     /**
      * Create a TMan component and subscribe the handlers to the appropriate
@@ -78,13 +77,13 @@ public final class TMan extends ComponentDefinition
         subscribe(handleCoordinatorMessage, networkPort);
         subscribe(handleHeartbeatLeader, networkPort);
         subscribe(handleHeartbeatLeaderResponse, networkPort);
+        subscribe(handleLeaderDeadMessage, networkPort);
 
         subscribe(handleElectionTimeout, timerPort);
         subscribe(handleCoordinatorTimeout, timerPort);
         subscribe(handleTManGossipTimeout, timerPort);
         subscribe(handleHeartbeatTimeout, timerPort);
         subscribe(handleHeartbeatLeaderTimeout, timerPort);
-        subscribe(handleLeaderSuicideTimeout, timerPort);
     }
     
     /**
@@ -194,20 +193,24 @@ public final class TMan extends ComponentDefinition
     };
     
     /**
-     * Handle the ThinkLeaderMessage event.
+     * Handle the LeaderDeadMessage event.
      * 
-     * This message is sent by a peer that "thinks" it is the leader. Then the
-     * election group will initiate an election using the bully algorithm and
-     * will eventually select a leader.
+     * This message is sent by a peer that "thinks" the leader is dead. Then the
+     * remaining election group will initiate an election using the bully 
+     * algorithm and will eventually select a new leader.
      */
-    Handler<ThinkLeaderMessage> handleThinkLeaderMessage = new Handler<ThinkLeaderMessage>()
+    Handler<LeaderDeadMessage> handleLeaderDeadMessage = new Handler<LeaderDeadMessage>()
     {
         @Override
-        public void handle(ThinkLeaderMessage event) {
+        public void handle(LeaderDeadMessage event) {
             electing = true;
             leader = null;
+            
+            CancelTimeout ct = new CancelTimeout(heartbeatTimeoutId);
+            trigger(ct, timerPort);
+            
             ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
-            System.err.println("[ELECTION::" + self.getPeerId() + "] I got a THINK_LEADER (or LEADER_DEAD) message!");
+            System.err.println("[ELECTION::" + self.getPeerId() + "] I got a LEADER_DEAD message!");
             if (self.getPeerId().equals(minimumUtility(electionGroup))) {
                 System.err.println("[ELECTION::" + self.getPeerId() + "] I am eligible to start the election! (" + minimumUtility(electionGroup) + ")");
                 for (PeerAddress peer : electionGroup) {
@@ -221,6 +224,40 @@ public final class TMan extends ComponentDefinition
                 st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
                 timeoutId = st.getTimeoutEvent().getTimeoutId();
                 trigger(st, timerPort);
+            }
+        }
+    };
+    
+    /**
+     * Handle the ThinkLeaderMessage event.
+     * 
+     * This message is sent by a peer that "thinks" it is the leader. Then the
+     * election group will initiate an election using the bully algorithm and
+     * will eventually select a leader.
+     */
+    Handler<ThinkLeaderMessage> handleThinkLeaderMessage = new Handler<ThinkLeaderMessage>()
+    {
+        @Override
+        public void handle(ThinkLeaderMessage event) {
+            if(!electing) {
+                electing = true;
+                leader = null;
+                ArrayList<PeerAddress> electionGroup = event.getElectionGroup();
+                System.err.println("[ELECTION::" + self.getPeerId() + "] I got a THINK_LEADER message!");
+                if (self.getPeerId().equals(minimumUtility(electionGroup))) {
+                    System.err.println("[ELECTION::" + self.getPeerId() + "] I am eligible to start the election! (" + minimumUtility(electionGroup) + ")");
+                    for (PeerAddress peer : electionGroup) {
+                        if (!self.getPeerId().equals(peer.getPeerId())) {
+                            trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
+                        }
+                    }
+                    Stats.registerElectionMessages(electionGroup.size());
+
+                    ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                    st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
+                    timeoutId = st.getTimeoutEvent().getTimeoutId();
+                    trigger(st, timerPort);
+                }
             }
         }
     };
@@ -363,7 +400,6 @@ public final class TMan extends ComponentDefinition
             leader = event.getLeader();
             electionGroup = event.getElectionGroup();
             electing = false;
-//            imDead = false;
 
             if (self.getPeerId().compareTo(leader.getPeerId()) != 0) {
                 ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
@@ -372,13 +408,7 @@ public final class TMan extends ComponentDefinition
             }
             
             Stats.reportElectionMessages();
-
-            // SUICIDE
-//            if(self.getPeerId().equals(leader.getPeerId())) {
-//                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(20000);
-//                heartbeatTimeout.setTimeoutEvent(new LeaderSuicide(heartbeatTimeout));
-//                trigger(heartbeatTimeout, timerPort);
-//            }
+            Stats.reportLeader(leader);
         }
     };
     
@@ -416,9 +446,7 @@ public final class TMan extends ComponentDefinition
     {
         @Override
         public void handle(HeartbeatLeaderTimeout event) {
-            leader = null;
-//            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I got a leader heartbeat timeout!");
-//            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] Srating election with group " + electionGroup + "!");
+            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I got a leader heartbeat timeout!");
             startLeaderReelection();
         }
     };
@@ -433,10 +461,7 @@ public final class TMan extends ComponentDefinition
     {
         @Override
         public void handle(HeartbeatLeader event) {
-//            if (!imDead) {
-//                System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am the leader and I got a heartbeat from " + event.getPeerSource().getPeerId() + "!");
             trigger(new HeartbeatLeaderResponse(self, event.getPeerSource()), networkPort);
-//            }
         }
     };
     
@@ -460,21 +485,6 @@ public final class TMan extends ComponentDefinition
                 heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
                 trigger(heartbeatTimeout, timerPort);
             }
-        }
-    };
-    
-    /**
-     * Handle the LeaderSuicide event.
-     * 
-     * Test event to remove the leader and restart the election by the
-     * election group.
-     */
-    Handler<LeaderSuicide> handleLeaderSuicideTimeout = new Handler<LeaderSuicide>()
-    {
-        @Override
-        public void handle(LeaderSuicide event) {
-//            System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am the leader and I'm killing myself gdwdgwwdtwndgntynndg...!! :( ");
-//            imDead = true;
         }
     };
     
@@ -590,9 +600,16 @@ public final class TMan extends ComponentDefinition
      * again so that a new election can start to select a new leader.
      */
     private void startLeaderReelection() {
-        System.err.println("[ELECTION::" + self.getPeerId() + "] The re-election group is " + electionGroup);
-        for (PeerAddress peer : tmanPartners) {
-            trigger(new ThinkLeaderMessage(self, peer, electionGroup), networkPort);
+        electionGroup.remove(leader);
+        leader = null;
+        electing = true;
+        if (self.getPeerId().equals(maximumUtility(electionGroup))) {
+            System.err.println("[ELECTION::" + self.getPeerId() + "] Starting re-election with group " + electionGroup);
+            for (PeerAddress peer : electionGroup) {
+                if(!self.getPeerId().equals(peer.getPeerId())) {
+                    trigger(new LeaderDeadMessage(self, peer, electionGroup), networkPort);
+                }
+            }
         }
     }
 

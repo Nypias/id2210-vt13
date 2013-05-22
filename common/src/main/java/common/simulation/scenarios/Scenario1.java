@@ -6,6 +6,8 @@ import se.sics.kompics.p2p.experiment.dsl.SimulationScenario;
 @SuppressWarnings("serial")
 public class Scenario1 extends Scenario
 {
+    private static final int MINUTE = 60000;
+    
     private static SimulationScenario scenario = new SimulationScenario()
     {
         {
@@ -30,10 +32,18 @@ public class Scenario1 extends Scenario
                     raise(500, Operations.addIndexEntry(), uniform(13));
                 }
             };
+            StochasticProcess process4 = new StochasticProcess()
+            {
+                {
+                    eventInterArrivalTime(constant(100));
+                    raise(1, Operations.killLeader(), uniform(13));
+                }
+            };
 
             process1.start();
             process2.startAfterTerminationOf(2000, process1);
-            process3.startAfterTerminationOf(30000, process2);
+            process3.startAfterTerminationOf(MINUTE, process2);
+            process4.startAfterStartOf(10000, process3);
         }
     };
 

@@ -1,5 +1,6 @@
-package tman.simulator.snapshot;
+package common.simulation;
 
+import common.peer.PeerAddress;
 import java.util.ArrayList;
 
 
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 public class Stats
 {
     private static final int NUMBER_OF_PEERS = 200;
+    private static PeerAddress leader;
     
     private static boolean reported = false;
     private static int electionMessages = 0;
@@ -60,6 +62,16 @@ public class Stats
         } else {
             System.err.println("[STATS] Index dissemination is not complete yet (" + indexDissemninationStats.size() + " / " + NUMBER_OF_PEERS + ")!");
         }
+    }
+    
+    // Leader reporting
+    public synchronized static void reportLeader(PeerAddress leader) {
+        Stats.leader = leader;
+        System.err.println("[STATS] Leader reported to be " + leader.getPeerId());
+    }
+    
+    public synchronized static PeerAddress getLeader() {
+        return Stats.leader;
     }
 
     // Private Utility Functions

@@ -149,6 +149,7 @@ public final class SearchSimulator extends ComponentDefinition {
 //-------------------------------------------------------------------	
     Handler<PeerFail> handlePeerFail = new Handler<PeerFail>() {
         public void handle(PeerFail event) {
+            System.err.println("[SEARCH_SIMULATOR] PeerFail received for " + event.getCyclonId());
             BigInteger id = ringNodes.getNode(event.getCyclonId());
 
             if (ringNodes.size() == 0) {

@@ -4,6 +4,7 @@ import common.simulation.AddIndexEntry;
 import common.simulation.PeerFail;
 import common.simulation.PeerJoin;
 import common.simulation.Publish;
+import common.simulation.Stats;
 import java.math.BigInteger;
 import se.sics.kompics.p2p.experiment.dsl.adaptor.Operation;
 import se.sics.kompics.p2p.experiment.dsl.adaptor.Operation1;
@@ -34,7 +35,15 @@ public class Operations {
 			return new PeerFail(id);
 		}
 	};
-
+//-------------------------------------------------------------------
+    public static Operation1<PeerFail, BigInteger> killLeader() {
+		return new Operation1<PeerFail, BigInteger>() {
+            @Override
+			public PeerFail generate(BigInteger id) {
+				return new PeerFail(Stats.getLeader().getPeerId());
+			}
+		};
+	}
 //-------------------------------------------------------------------
 	public static Operation<Publish> publish = new Operation<Publish>() {
 		public Publish generate() {

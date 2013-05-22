@@ -48,7 +48,7 @@ import se.sics.kompics.web.WebResponse;
 import search.simulator.snapshot.Snapshot;
 import search.system.peer.AddIndexText;
 import search.system.peer.IndexPort;
-import tman.simulator.snapshot.Stats;
+import common.simulation.Stats;
 import tman.system.peer.tman.TManSample;
 import tman.system.peer.tman.TManSamplePort;
 import tman.system.peer.tman.UtilityComparator;
@@ -599,7 +599,9 @@ public final class Search extends ComponentDefinition {
         public void handle(AddEntry event) {
             System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Received AddEntry (" + event.getNewEntry() + ") from " + event.getPeerSource().getPeerId());
             try {
-                addEntry(event.getNewEntry());
+                Entry newEntry = event.getNewEntry();
+                nextIndexEntryID = Integer.parseInt(newEntry.getId()) + 1;
+                addEntry(newEntry);
                 trigger(new AddEntryACK(self, event.getPeerSource(), event.getNewEntry().getId()), networkPort);
                 System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Acknowledged AddEntry!");
             }
