@@ -8,7 +8,7 @@ import java.util.ArrayList;
  */
 public class Stats
 {
-    private static final int NUMBER_OF_PEERS = 50;
+    private static final int NUMBER_OF_PEERS = 200;
     
     private static boolean reported = false;
     private static int electionMessages = 0;
@@ -47,7 +47,10 @@ public class Stats
             indexDissemninationStats.add(new Integer(rounds));
         } else if(indexDissemninationStats.size() == NUMBER_OF_PEERS && !reported) {
             reported = true;
-            System.err.println("[STATS] The index was disseminated to " + indexDissemninationStats.size() + " peers in " + maximum(indexDissemninationStats) + " rounds!");
+            System.err.println("[STATS] The index was disseminated to " + indexDissemninationStats.size() + " peers in : ");
+            System.err.println("Maximum : " + maximum(indexDissemninationStats));
+            System.err.println("Average : " + average(indexDissemninationStats));
+            System.err.println("Minimum : " + minimum(indexDissemninationStats));
         }
     }
     
