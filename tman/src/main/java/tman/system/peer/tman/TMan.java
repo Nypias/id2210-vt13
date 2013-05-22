@@ -31,7 +31,7 @@ public final class TMan extends ComponentDefinition
 {
     private static final Object tmanPartnersLock = new Object();
     
-    private final int SIMILARITY_LIST_SIZE = 5;
+    private final int SIMILARITY_LIST_SIZE = 10;
     private final int CONVERGENCE_CONSTANT = 10;
     private final int BULLY_TIMEOUT = 2000;
     private final double SOFT_MAX_TEMPERATURE = 1.0;
@@ -204,6 +204,9 @@ public final class TMan extends ComponentDefinition
         @Override
         public void handle(LeaderDeadMessage event) {
             electing = true;
+            if (tmanPartners.contains(leader)) {
+            	tmanPartners.remove(leader);
+            }
             leader = null;
             
             CancelTimeout ct = new CancelTimeout(heartbeatTimeoutId);
@@ -601,6 +604,7 @@ public final class TMan extends ComponentDefinition
      */
     private void startLeaderReelection() {
         electionGroup.remove(leader);
+        tmanPartners.remove(leader);
         leader = null;
         electing = true;
         if (self.getPeerId().equals(maximumUtility(electionGroup))) {

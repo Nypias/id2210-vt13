@@ -29,7 +29,7 @@ public class Scenario1 extends Scenario
             {
                 {
                     eventInterArrivalTime(constant(100));
-                    raise(500, Operations.addIndexEntry(), uniform(13));
+                    raise(100, Operations.addIndexEntry(), uniform(13));
                 }
             };
             StochasticProcess process4 = new StochasticProcess()

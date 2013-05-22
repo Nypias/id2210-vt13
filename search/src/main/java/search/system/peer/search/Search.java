@@ -62,7 +62,7 @@ public final class Search extends ComponentDefinition {
     private final double SOFT_MAX_TEMPERATURE = 1.0;
     private final int NEW_ENTRY_ACK_TIMEOUT = 3000;
     private final int NEW_ENTRY_ADD_RETRIES = 5;
-    private final int NUMBER_OF_ENTRIES = 500;
+    private final int NUMBER_OF_ENTRIES = 100;
     
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
     Positive<IndexPort> indexPort = positive(IndexPort.class);
@@ -241,7 +241,7 @@ public final class Search extends ComponentDefinition {
     Handler<ForwardEntryToLeader> handleAddEntryToLeader = new Handler<ForwardEntryToLeader>() {
         @Override
         public void handle(ForwardEntryToLeader event) {
-//            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got forward message from " + event.getPeerSource().getPeerId());
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got forward message from " + event.getPeerSource().getPeerId());
             if(leader != null) {
                 if(self.getPeerId().equals(leader.getPeerId())) {
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I am the leader and I received a new entry!");
