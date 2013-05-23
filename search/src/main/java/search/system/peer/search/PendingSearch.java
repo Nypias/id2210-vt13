@@ -1,9 +1,9 @@
 package search.system.peer.search;
 
 import common.configuration.JRConfig;
-import common.peer.PeerAddress;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import se.sics.kompics.web.WebRequest;
 
@@ -15,6 +15,7 @@ public class PendingSearch
     private Integer pendingSearchID;
     private WebRequest webRequest;
     private String searchQuery;
+    private UUID queryTimeout;
 
     public PendingSearch(Integer pendingSearchID, WebRequest webRequest, String searchQuery) {
         searchResults = new ConcurrentHashMap<Integer, ArrayList<Entry>>();
@@ -23,7 +24,7 @@ public class PendingSearch
             searchResults.put(i, new ArrayList<Entry>());
             searchResultsChecklist.put(i, Boolean.FALSE);
         }
-        
+
         this.pendingSearchID = pendingSearchID;
         this.webRequest = webRequest;
         this.searchQuery = searchQuery;
@@ -51,7 +52,7 @@ public class PendingSearch
         }
         return results;
     }
-    
+
     public ArrayList<Integer> getMissingResponses() {
         ArrayList<Integer> missingPartitionResponses = new ArrayList<Integer>();
         for (Integer key : this.searchResultsChecklist.keySet()) {
@@ -68,5 +69,13 @@ public class PendingSearch
 
     public String getSearchQuery() {
         return searchQuery;
+    }
+
+    public UUID getQueryTimeout() {
+        return queryTimeout;
+    }
+
+    public void setQueryTimeout(UUID queryTimeout) {
+        this.queryTimeout = queryTimeout;
     }
 }

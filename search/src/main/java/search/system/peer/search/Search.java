@@ -52,6 +52,7 @@ import search.system.peer.IndexPort;
 import common.simulation.Stats;
 import java.math.BigInteger;
 import java.util.Map;
+import tman.system.peer.tman.ElectionTimeout;
 import tman.system.peer.tman.TManSample;
 import tman.system.peer.tman.TManSamplePort;
 import tman.system.peer.tman.UtilityComparator;
@@ -160,7 +161,7 @@ public final class Search extends ComponentDefinition {
      * @return An integer representing the partition to store the entry in.
      */
     private int getEntryPartition(Entry entry) {
-        return Math.abs(entry.getTitle().hashCode()%5);
+        return Math.abs(entry.getTitle().hashCode()%JRConfig.NUMBER_OF_PARTITIONS);
     }
     
     /**
@@ -272,7 +273,23 @@ public final class Search extends ComponentDefinition {
         for(PeerAddress peer : searchPeer) {
             trigger(new SearchPartitionRequest(self, peer, pendingSearchID, searchQuery), networkPort);
         }
+        
+        ScheduleTimeout st = new ScheduleTimeout(JRConfig.PARTITION_QUERY_TIMEOUT);
+        st.setTimeoutEvent(new SearchPartitionTimeout(st, pendingSearchID));
+        pendingSearch.get(pendingSearchID).setQueryTimeout(st.getTimeoutEvent().getTimeoutId());
+        trigger(st, timerPort);
     }
+    
+    Handler<SearchPartitionTimeout> handleSearchPartitionTimeout = new Handler<SearchPartitionTimeout>() {
+        @Override
+        public void handle(SearchPartitionTimeout event) {
+            PendingSearch ps = pendingSearch.get(event.getPendingSearchID());
+            WebResponse response = new WebResponse("We were unable to serve your request at the time, please try again later!", ps.getWebRequest(), 1, 1);
+            trigger(response, webPort);
+            
+            pendingSearch.remove(event.getPendingSearchID());
+        }
+    };
     
     Handler<SearchPartitionRequest> handleSearchPartitionRequest = new Handler<SearchPartitionRequest>() {
         @Override
@@ -291,9 +308,13 @@ public final class Search extends ComponentDefinition {
             ps.registerSearchResults(getPartitionID(event.getPeerSource()), event.getSearchResult());
             
             if(ps.isSearchComplete()) {
+                CancelTimeout ct = new CancelTimeout(ps.getQueryTimeout());
+                trigger(ct, timerPort);
+            
                 String responseText = query(ps.getMergedSearchResults(), ps.getSearchQuery());
                 WebResponse response = new WebResponse(responseText, ps.getWebRequest(), 1, 1);
                 trigger(response, webPort);
+                pendingSearch.remove(event.getPendingSearchID());
             }
         }
     };

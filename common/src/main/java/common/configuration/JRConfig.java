@@ -27,6 +27,10 @@ public class JRConfig
      */
     public static final int NUMBER_OF_PARTITION_LINKS = 3;
     /**
+     * Timeout when searching different partitions
+     */
+    public static final int PARTITION_QUERY_TIMEOUT = 5000;
+    /**
      * The number of consecutive rounds we need to have a stable similarity list
      * in order to start the election.
      */
