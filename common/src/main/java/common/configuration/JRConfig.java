@@ -23,6 +23,10 @@ public class JRConfig
      */
     public static final int NUMBER_OF_PARTITIONS = 5;
     /**
+     * The number of cross-partition links.
+     */
+    public static final int NUMBER_OF_PARTITION_LINKS = 3;
+    /**
      * The number of consecutive rounds we need to have a stable similarity list
      * in order to start the election.
      */

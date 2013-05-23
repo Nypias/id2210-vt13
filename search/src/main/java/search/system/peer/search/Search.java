@@ -50,6 +50,7 @@ import search.simulator.snapshot.Snapshot;
 import search.system.peer.AddIndexText;
 import search.system.peer.IndexPort;
 import common.simulation.Stats;
+import java.math.BigInteger;
 import tman.system.peer.tman.TManSample;
 import tman.system.peer.tman.TManSamplePort;
 import tman.system.peer.tman.UtilityComparator;
@@ -121,18 +122,7 @@ public final class Search extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
-//            System.err.println("[INDEX::" + self.getPeerId() + "] CyclonSample (" + event.getSample() + ")");
-            if(!event.getSample().isEmpty()) {
-                PeerAddress peer = event.getSample().get(0); // TODO PICK A PEER!!!!
-                ArrayList<Range> missingRanges = getMissingRanges();
-                Integer lastExisting = (indexStore.isEmpty())?-1:indexStore.get(indexStore.size() - 1);
-//                System.out.println("============================================================");
-//                System.out.println("[INDEX::" + self.getPeerAddress().getId() + "->" + peer.getPeerAddress().getId() + "] I need " + missingRanges.size() + " ranges and my maximum ID is " + lastExisting + "!");
-//                System.out.println(missingRanges);
-//                System.out.println("============================================================");
-                IndexUpdateRequest iur = new IndexUpdateRequest(self, peer, missingRanges, lastExisting);
-                trigger(iur, networkPort);
-            }
+
         }
     };
     
@@ -587,6 +577,19 @@ public final class Search extends ComponentDefinition {
             tmanPartners = sample;
 //            System.err.println("[SERMAN::" + self.getPeerId() + "] Got " + tmanPartners + " from TMan component");
             leader = event.getLeader();
+            
+//            System.err.println("[INDEX::" + self.getPeerId() + "] CyclonSample (" + event.getSample() + ")");
+            if(sample.size() > 1) {
+                PeerAddress peer = sample.get(r.nextInt(sample.size() - 1));
+                ArrayList<Range> missingRanges = getMissingRanges();
+                Integer lastExisting = (indexStore.isEmpty())?-1:indexStore.get(indexStore.size() - 1);
+//                System.out.println("============================================================");
+//                System.out.println("[INDEX::" + self.getPeerAddress().getId() + "->" + peer.getPeerAddress().getId() + "] I need " + missingRanges.size() + " ranges and my maximum ID is " + lastExisting + "!");
+//                System.out.println(missingRanges);
+//                System.out.println("============================================================");
+                IndexUpdateRequest iur = new IndexUpdateRequest(self, peer, missingRanges, lastExisting);
+                trigger(iur, networkPort);
+            }
         }
     };
     
@@ -619,7 +622,7 @@ public final class Search extends ComponentDefinition {
             handleNewEntry(newEntry);
         }
     };
-    
+        
     private int countIndexEntries(Directory index) {
         int entries = 0;
         try {
