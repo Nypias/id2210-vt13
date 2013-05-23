@@ -72,6 +72,7 @@ public final class Search extends ComponentDefinition {
 
     private ConcurrentMap<String, PendingACK> pendingResponses = new ConcurrentHashMap<String, PendingACK>();
     private ConcurrentMap<String, PendingEntry> pendingEntries = new ConcurrentHashMap<String, PendingEntry>();
+    private ConcurrentMap<Integer, ArrayList<PeerAddress>> routingTable = new ConcurrentHashMap<Integer, ArrayList<PeerAddress>>();
     private ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
     private PeerAddress leader = null;
     private ArrayList<Integer> indexStore = new ArrayList<Integer>();
@@ -114,6 +115,11 @@ public final class Search extends ComponentDefinition {
             num = init.getNum();
             searchConfiguration = init.getConfiguration();
             period = searchConfiguration.getPeriod();
+            
+            // Initialize routing table for partitioning
+            for(int i = 0; i < JRConfig.NUMBER_OF_PARTITIONS; i++) {
+                routingTable.put(i, new ArrayList<PeerAddress>());
+            }
 
             Snapshot.updateNum(self, num);
         }
@@ -122,9 +128,35 @@ public final class Search extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
-
+            updateRoutingTables(event.getSample());
         }
     };
+    
+    private void updateRoutingTables(ArrayList<PeerAddress> sample) {
+        for (PeerAddress peer : sample) {
+            int peerPartitionID = getPartitionID(peer);
+            if (peerPartitionID != getPartitionID(self)) {
+                ArrayList<PeerAddress> partitionLinks = routingTable.get(peerPartitionID);
+                if (partitionLinks.size() < JRConfig.NUMBER_OF_PARTITION_LINKS) {
+                    partitionLinks.add(peer);
+                } else {
+                    // If the list is full swap a random peer with the new one
+                    partitionLinks.set(r.nextInt(JRConfig.NUMBER_OF_PARTITION_LINKS - 1), peer);
+                }
+            }
+        }
+        System.err.println("[SEARCH::" + self.getPeerId() + "::" + getPartitionID(self) + "] " + routingTable);
+    }
+    
+    /**
+     * Calculates the partition ID for a node based on its ID and the required number of partitions.
+     * 
+     * @param peer The peer for which we are calculating the partition ID.
+     * @return An integer representing the peer`s partition ID.
+     */
+    private int getPartitionID(PeerAddress peer) {
+        return peer.getPeerId().mod(new BigInteger(JRConfig.NUMBER_OF_PARTITIONS + "")).intValue();
+    }
     
     Handler<IndexUpdateRequest> handleIndexUpdateRequest = new Handler<IndexUpdateRequest>() {
         @Override
