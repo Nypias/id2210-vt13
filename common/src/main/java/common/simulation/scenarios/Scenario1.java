@@ -1,5 +1,6 @@
 package common.simulation.scenarios;
 
+import common.configuration.JRConfig;
 import se.sics.kompics.p2p.experiment.dsl.SimulationScenario;
 
 
@@ -22,14 +23,14 @@ public class Scenario1 extends Scenario
             {
                 {
                     eventInterArrivalTime(constant(1));
-                    raise(199, Operations.peerJoin(5), uniform(13));
+                    raise(JRConfig.NUMBER_OF_NODES - 1, Operations.peerJoin(5), uniform(13));
                 }
             };
             StochasticProcess process3 = new StochasticProcess()
             {
                 {
                     eventInterArrivalTime(constant(100));
-                    raise(500, Operations.addIndexEntry(), uniform(13));
+                    raise(JRConfig.NUMBER_OF_INDEX_ENTRIES, Operations.addIndexEntry(), uniform(13));
                 }
             };
             StochasticProcess process4 = new StochasticProcess()
@@ -42,8 +43,8 @@ public class Scenario1 extends Scenario
 
             process1.start();
             process2.startAfterTerminationOf(2000, process1);
-            process3.startAfterTerminationOf(MINUTE, process2);
-            process4.startAfterStartOf(10000, process3);
+//            process3.startAfterTerminationOf(MINUTE, process2);
+//            process4.startAfterStartOf(10000, process3);
         }
     };
 

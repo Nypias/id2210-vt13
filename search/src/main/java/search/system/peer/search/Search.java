@@ -1,5 +1,6 @@
 package search.system.peer.search;
 
+import common.configuration.JRConfig;
 import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
 import cyclon.system.peer.cyclon.CyclonSample;
@@ -58,12 +59,7 @@ import tman.system.peer.tman.UtilityComparator;
  * @author jdowling
  */
 public final class Search extends ComponentDefinition {
-
-    private final double SOFT_MAX_TEMPERATURE = 1.0;
-    private final int NEW_ENTRY_ACK_TIMEOUT = 3000;
-    private final int NEW_ENTRY_ADD_RETRIES = 5;
-    private final int NUMBER_OF_ENTRIES = 500;
-    
+   
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
     Positive<IndexPort> indexPort = positive(IndexPort.class);
     Positive<Network> networkPort = positive(Network.class);
@@ -180,7 +176,7 @@ public final class Search extends ComponentDefinition {
 //            System.err.println("[" + self.getPeerAddress().getId() + "] IndexUpdateResponse (" + indexStore.size() + ")");
 
 
-            if (countIndexEntries(index) == NUMBER_OF_ENTRIES) {
+            if (countIndexEntries(index) == JRConfig.NUMBER_OF_INDEX_ENTRIES) {
                 Stats.registerCompleteIndex(disseminationRounds);
             }
         }
@@ -257,7 +253,7 @@ public final class Search extends ComponentDefinition {
                         // Add to ourselves
                         addEntry(newEntry);
                         
-                        ScheduleTimeout st = new ScheduleTimeout(NEW_ENTRY_ACK_TIMEOUT);
+                        ScheduleTimeout st = new ScheduleTimeout(JRConfig.NEW_ENTRY_ACK_TIMEOUT);
                         st.setTimeoutEvent(new AddNewEntryTimeout(st, newEntry.getId()));
                         UUID timeoutID = st.getTimeoutEvent().getTimeoutId();
                         trigger(st, timerPort);
@@ -340,16 +336,16 @@ public final class Search extends ComponentDefinition {
         public void handle(NewEntryNACK event) {
             PendingEntry pen = pendingEntries.get(event.getNewEntryTempID());
             pen.incAddEntryTriesCounter();
-            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] New entry failed attempt (" + pen.getAddEntryTriesCounter() + " / " + NEW_ENTRY_ADD_RETRIES + ")");
-            if (pen.getAddEntryTriesCounter() > NEW_ENTRY_ADD_RETRIES) {
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] New entry failed attempt (" + pen.getAddEntryTriesCounter() + " / " + JRConfig.NEW_ENTRY_ADD_RETRIES + ")");
+            if (pen.getAddEntryTriesCounter() > JRConfig.NEW_ENTRY_ADD_RETRIES) {
                 pendingEntries.remove(event.getNewEntryTempID());
                 System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Removed " + event.getNewEntryTempID() + " from pending entries list!");
                 if (pen.getWebRequest() == null) {
                     // If the add request came from the Simulator don't send web content back
-                    System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] New entry (" + pen.getPendingEntryID() + ") NOT added after " + NEW_ENTRY_ADD_RETRIES + " tries!");
+                    System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] New entry (" + pen.getPendingEntryID() + ") NOT added after " + JRConfig.NEW_ENTRY_ADD_RETRIES + " tries!");
                 } else {
                     // If the add request came from the browser respond through Jetty
-                    WebResponse response = new WebResponse("New entry (" + pen.getPendingEntryID() + ") NOT added after " + NEW_ENTRY_ADD_RETRIES + " tries!", pen.getWebRequest(), 1, 1);
+                    WebResponse response = new WebResponse("New entry (" + pen.getPendingEntryID() + ") NOT added after " + JRConfig.NEW_ENTRY_ADD_RETRIES + " tries!", pen.getWebRequest(), 1, 1);
                     trigger(response, webPort);
                 }
             }
@@ -670,7 +666,7 @@ public final class Search extends ComponentDefinition {
             // get inverse of values - lowest have highest value.
             double val = j;
             j--;
-            values[i] = Math.exp(val / SOFT_MAX_TEMPERATURE);
+            values[i] = Math.exp(val / JRConfig.SOFT_MAX_TEMPERATURE);
             total += values[i];
         }
 

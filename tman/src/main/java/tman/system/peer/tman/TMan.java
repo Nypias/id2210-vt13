@@ -1,5 +1,6 @@
 package tman.system.peer.tman;
 
+import common.configuration.JRConfig;
 import common.configuration.TManConfiguration;
 import common.peer.PeerAddress;
 import common.simulation.Stats;
@@ -31,12 +32,6 @@ public final class TMan extends ComponentDefinition
 {
     private static final Object tmanPartnersLock = new Object();
     
-    private final int SIMILARITY_LIST_SIZE = 5;
-    private final int CONVERGENCE_CONSTANT = 10;
-    private final int BULLY_TIMEOUT = 2000;
-    private final double SOFT_MAX_TEMPERATURE = 1.0;
-    private final int HEARTBEAT_TIMEOUT = 5000;
-    
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
     Positive<Network> networkPort = positive(Network.class);
@@ -57,6 +52,7 @@ public final class TMan extends ComponentDefinition
     private UtilityComparator uc;
     private int roundCounter = 0;
     private ArrayList<PeerAddress> electionGroup;
+    private int partitionID;
 
     /**
      * Create a TMan component and subscribe the handlers to the appropriate
@@ -99,6 +95,7 @@ public final class TMan extends ComponentDefinition
         @Override
         public void handle(TManInit init) {
             self = init.getSelf();
+            partitionID = getPartitionID(self);
             tmanConfiguration = init.getConfiguration();
             period = tmanConfiguration.getPeriod();
             uc = new UtilityComparator(self);
@@ -151,6 +148,7 @@ public final class TMan extends ComponentDefinition
 //            System.err.println("=====================================================================================");
 //            System.err.println("[TMAN::" + self.getPeerId() + "] Cyclon Partners:" + cyclonPartners);
 //            System.err.println("[TMAN::" + self.getPeerId() + "] TMan Partners:" + tmanPartners);
+            cyclonPartners = filterByPartitionID(cyclonPartners, partitionID);
             // If provided list is empty don't do anything
             if (!cyclonPartners.isEmpty()) {
 //                System.err.println("[TMAN::" + self.getPeerId() + "] Random Peer:" + randomPeer);
@@ -164,8 +162,8 @@ public final class TMan extends ComponentDefinition
                     }
 
                     Collections.sort(tmanPartners, uc);
-                    if (tmanPartners.size() > SIMILARITY_LIST_SIZE) {
-                        tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
+                    if (tmanPartners.size() > JRConfig.SIMILARITY_LIST_SIZE) {
+                        tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - JRConfig.SIMILARITY_LIST_SIZE, tmanPartners.size()));
                     }
                 }
 
@@ -177,11 +175,11 @@ public final class TMan extends ComponentDefinition
                     convergenceCount = 0;
                 }
 
-                if (!electing && convergenceCount == CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
+                if (!electing && convergenceCount == JRConfig.CONVERGENCE_CONSTANT && self.getPeerId().equals(self.getPeerId().max(maximumUtility(tmanPartners)))) {
                     // Check if a leader exists first and if he is smaller than us we can start the election!
 
                     electing = true;
-                    System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader (" + (roundCounter - CONVERGENCE_CONSTANT) + ")!");
+                    System.err.println("[ELECTION::" + self.getPeerId() + "] I think I am the leader (" + (roundCounter - JRConfig.CONVERGENCE_CONSTANT) + ")!");
                     startLeaderElection();
                 }
 
@@ -220,7 +218,7 @@ public final class TMan extends ComponentDefinition
                 }
                 Stats.registerElectionMessages(electionGroup.size());
 
-                ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                ScheduleTimeout st = new ScheduleTimeout(JRConfig.BULLY_TIMEOUT);
                 st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
                 timeoutId = st.getTimeoutEvent().getTimeoutId();
                 trigger(st, timerPort);
@@ -253,7 +251,7 @@ public final class TMan extends ComponentDefinition
                     }
                     Stats.registerElectionMessages(electionGroup.size());
 
-                    ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                    ScheduleTimeout st = new ScheduleTimeout(JRConfig.BULLY_TIMEOUT);
                     st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
                     timeoutId = st.getTimeoutEvent().getTimeoutId();
                     trigger(st, timerPort);
@@ -304,7 +302,7 @@ public final class TMan extends ComponentDefinition
                         trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
                         Stats.registerElectionMessage();
 
-                        ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                        ScheduleTimeout st = new ScheduleTimeout(JRConfig.BULLY_TIMEOUT);
                         st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
                         timeoutId = st.getTimeoutEvent().getTimeoutId();
                         trigger(st, timerPort);
@@ -340,7 +338,7 @@ public final class TMan extends ComponentDefinition
                             trigger(new ElectionMessage(self, peer, electionGroup), networkPort);
                             Stats.registerElectionMessage();
 
-                            ScheduleTimeout st = new ScheduleTimeout(BULLY_TIMEOUT);
+                            ScheduleTimeout st = new ScheduleTimeout(JRConfig.BULLY_TIMEOUT);
                             st.setTimeoutEvent(new ElectionTimeout(st, electionGroup));
                             timeoutId = st.getTimeoutEvent().getTimeoutId();
                             trigger(st, timerPort);
@@ -373,7 +371,7 @@ public final class TMan extends ComponentDefinition
                 CancelTimeout ct = new CancelTimeout(timeoutId);
                 trigger(ct, timerPort);
 
-                ScheduleTimeout st = new ScheduleTimeout(2 * BULLY_TIMEOUT);
+                ScheduleTimeout st = new ScheduleTimeout(2 * JRConfig.BULLY_TIMEOUT);
                 st.setTimeoutEvent(new CoordinatorTimeout(st, event.getElectionGroup()));
                 timeoutId = st.getTimeoutEvent().getTimeoutId();
                 trigger(st, timerPort);
@@ -402,7 +400,7 @@ public final class TMan extends ComponentDefinition
             electing = false;
 
             if (self.getPeerId().compareTo(leader.getPeerId()) != 0) {
-                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(JRConfig.HEARTBEAT_TIMEOUT);
                 heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
                 trigger(heartbeatTimeout, timerPort);
             }
@@ -427,7 +425,7 @@ public final class TMan extends ComponentDefinition
 //                System.err.println("[HEARTBEAT::" + self.getPeerId() + "] I am sending a heartbeat to the leader (" + leader.getPeerId() + ") ");
                 trigger(new HeartbeatLeader(self, leader), networkPort);
 
-                ScheduleTimeout st = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+                ScheduleTimeout st = new ScheduleTimeout(JRConfig.HEARTBEAT_TIMEOUT);
                 st.setTimeoutEvent(new HeartbeatLeaderTimeout(st));
                 heartbeatTimeoutId = st.getTimeoutEvent().getTimeoutId();
                 trigger(st, timerPort);
@@ -481,7 +479,7 @@ public final class TMan extends ComponentDefinition
                 CancelTimeout ct = new CancelTimeout(heartbeatTimeoutId);
                 trigger(ct, timerPort);
 
-                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(HEARTBEAT_TIMEOUT);
+                ScheduleTimeout heartbeatTimeout = new ScheduleTimeout(JRConfig.HEARTBEAT_TIMEOUT);
                 heartbeatTimeout.setTimeoutEvent(new HeartbeatTimeout(heartbeatTimeout));
                 trigger(heartbeatTimeout, timerPort);
             }
@@ -534,8 +532,8 @@ public final class TMan extends ComponentDefinition
                 }
 
                 Collections.sort(tmanPartners, uc);
-                if (tmanPartners.size() > SIMILARITY_LIST_SIZE) {
-                    tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
+                if (tmanPartners.size() > JRConfig.SIMILARITY_LIST_SIZE) {
+                    tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - JRConfig.SIMILARITY_LIST_SIZE, tmanPartners.size()));
                 }
 
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] My partners now are " + tmanPartners);
@@ -567,13 +565,42 @@ public final class TMan extends ComponentDefinition
                 }
 
                 Collections.sort(tmanPartners, uc);
-                if (tmanPartners.size() > SIMILARITY_LIST_SIZE) {
-                    tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - SIMILARITY_LIST_SIZE, tmanPartners.size()));
+                if (tmanPartners.size() > JRConfig.SIMILARITY_LIST_SIZE) {
+                    tmanPartners = new ArrayList<PeerAddress>(tmanPartners.subList(tmanPartners.size() - JRConfig.SIMILARITY_LIST_SIZE, tmanPartners.size()));
                 }
             }
 //            System.err.println("[GOSSIP::" + self.getPeerId() + "] My partners now are " + tmanPartners);
         }
     };
+    
+    /**
+     * Filters Cyclon samples to keep only nodes in the same partition.
+     * 
+     * Using mod operation on the IDs of the nodes we pick only the nodes that
+     * belong to our partition to build the gradient and do the election.
+     */
+    private ArrayList<PeerAddress> filterByPartitionID(ArrayList<PeerAddress> list, int partitionID) {
+        ArrayList<PeerAddress> filteredList = new ArrayList<PeerAddress>();
+        
+        for(PeerAddress peer : list) {
+            int peerPartitionID = getPartitionID(peer);
+            if(peerPartitionID == partitionID) {
+                filteredList.add(peer);
+            }
+        }
+        
+        return filteredList;
+    }
+    
+    /**
+     * Calculates the partition ID for a node based on its ID and the required number of partitions.
+     * 
+     * @param peer The peer for which we are calculating the partition ID.
+     * @return An integer representing the peer`s partition ID.
+     */
+    private int getPartitionID(PeerAddress peer) {
+        return peer.getPeerId().mod(new BigInteger(JRConfig.NUMBER_OF_PARTITIONS + "")).intValue();
+    }
 
     /**
      * Starts an election.
@@ -740,7 +767,7 @@ public final class TMan extends ComponentDefinition
             // get inverse of values - lowest have highest value.
             double val = j;
             j--;
-            values[i] = Math.exp(val / SOFT_MAX_TEMPERATURE);
+            values[i] = Math.exp(val / JRConfig.SOFT_MAX_TEMPERATURE);
             total += values[i];
         }
 
