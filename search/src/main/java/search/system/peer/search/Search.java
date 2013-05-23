@@ -51,6 +51,7 @@ import search.system.peer.AddIndexText;
 import search.system.peer.IndexPort;
 import common.simulation.Stats;
 import java.math.BigInteger;
+import java.util.Map;
 import tman.system.peer.tman.TManSample;
 import tman.system.peer.tman.TManSamplePort;
 import tman.system.peer.tman.UtilityComparator;
@@ -71,6 +72,7 @@ public final class Search extends ComponentDefinition {
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
 
     private ConcurrentMap<String, PendingACK> pendingResponses = new ConcurrentHashMap<String, PendingACK>();
+    private ConcurrentMap<Integer, PendingSearch> pendingSearch = new ConcurrentHashMap<Integer, PendingSearch>();
     private ConcurrentMap<String, PendingEntry> pendingEntries = new ConcurrentHashMap<String, PendingEntry>();
     private ConcurrentMap<Integer, ArrayList<PeerAddress>> routingTable = new ConcurrentHashMap<Integer, ArrayList<PeerAddress>>();
     private ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
@@ -89,6 +91,7 @@ public final class Search extends ComponentDefinition {
     private int latestMissingIndexValue = 0;
     private int nextIndexEntryID = 0;
     private int pendingEntryID = 0;
+    private int pendingSearchID = 0;
     private int disseminationRounds = 0;
     
 //-------------------------------------------------------------------	
@@ -106,6 +109,8 @@ public final class Search extends ComponentDefinition {
         subscribe(handleAddEntryACK, networkPort);
         subscribe(handleNewEntryACK, networkPort);
         subscribe(handleNewEntryNACK, networkPort);
+        subscribe(handleSearchPartitionRequest, networkPort);
+        subscribe(handleSearchPartitionResponse, networkPort);
     }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
@@ -225,8 +230,9 @@ public final class Search extends ComponentDefinition {
             logger.debug("Handling Webpage Request");
             WebResponse response;
             if (args[0].compareToIgnoreCase("search") == 0) {
-                response = new WebResponse(searchPageHtml(args[1]), event, 1, 1);
-                trigger(response, webPort);
+                String searchQuery = args[1];
+                pendingSearch.put(pendingSearchID, new PendingSearch(pendingSearchID, event, searchQuery));
+                handleSearchQuery(pendingSearchID++, searchQuery);
             } else if (args[0].compareToIgnoreCase("add") == 0) {
                 Entry newEntry = new Entry(String.valueOf(pendingEntryID), args[1], args[2]);
                 pendingEntries.put(String.valueOf(pendingEntryID), new PendingEntry(String.valueOf(pendingEntryID++), event, newEntry));
@@ -248,6 +254,45 @@ public final class Search extends ComponentDefinition {
             }
             else {
                 response = new WebResponse(searchPageHtml(event.getTarget()), event, 1, 1);
+                trigger(response, webPort);
+            }
+        }
+    };
+    
+    private void handleSearchQuery(Integer pendingSearchID, String searchQuery) {
+        ArrayList<PeerAddress> searchPeer = new ArrayList<PeerAddress>();
+        for(int i = 0; i < JRConfig.NUMBER_OF_PARTITIONS; i++) {
+            if(i != getPartitionID(self)) {
+                searchPeer.add(routingTable.get(i).get(r.nextInt(JRConfig.NUMBER_OF_PARTITION_LINKS - 1)));
+            } else {
+                searchPeer.add(self);
+            }
+        }
+        
+        for(PeerAddress peer : searchPeer) {
+            trigger(new SearchPartitionRequest(self, peer, pendingSearchID, searchQuery), networkPort);
+        }
+    }
+    
+    Handler<SearchPartitionRequest> handleSearchPartitionRequest = new Handler<SearchPartitionRequest>() {
+        @Override
+        public void handle(SearchPartitionRequest event) {
+            ArrayList<Entry> searchResult = new ArrayList<Entry>();
+            searchResult.addAll(query(event.getSearchQuery()));
+            
+            trigger(new SearchPartitionResponse(self, event.getPeerSource(), event.getPendingSearchID(), searchResult), networkPort);
+        }
+    };
+    
+    Handler<SearchPartitionResponse> handleSearchPartitionResponse = new Handler<SearchPartitionResponse>() {
+        @Override
+        public void handle(SearchPartitionResponse event) {
+            PendingSearch ps = pendingSearch.get(event.getPendingSearchID());
+            ps.registerSearchResults(getPartitionID(event.getPeerSource()), event.getSearchResult());
+            
+            if(ps.isSearchComplete()) {
+                String responseText = query(ps.getMergedSearchResults(), ps.getSearchQuery());
+                WebResponse response = new WebResponse(responseText, ps.getWebRequest(), 1, 1);
                 trigger(response, webPort);
             }
         }
@@ -570,6 +615,83 @@ public final class Search extends ComponentDefinition {
         }
     }
     
+    private String query(ArrayList<Entry> entries, String searchQuery) {
+        StringBuilder response = new StringBuilder();
+        try {
+            StandardAnalyzer searchAnalyzer = new StandardAnalyzer(Version.LUCENE_42);
+            Directory searchIndex = new RAMDirectory();
+            IndexWriterConfig seachConfig = new IndexWriterConfig(Version.LUCENE_42, searchAnalyzer);
+            
+            IndexWriter w = new IndexWriter(searchIndex, seachConfig);
+            for (int i = 0; i < entries.size(); i++) {
+                Document doc = new Document();
+                doc.add(new IntField("id", i, Field.Store.YES));
+                doc.add(new TextField("title", entries.get(i).getTitle(), Field.Store.YES));
+                doc.add(new StringField("magnet", entries.get(i).getMagnetLink(), Field.Store.YES));
+                w.addDocument(doc);
+            }
+            w.close();
+
+            Query q = new QueryParser(Version.LUCENE_42, "title", searchAnalyzer).parse(searchQuery);
+            IndexSearcher searcher;
+            IndexReader reader;
+            reader = DirectoryReader.open(searchIndex);
+            searcher = new IndexSearcher(reader);
+
+            int hitsPerPage = 1000;
+            TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
+
+            searcher.search(q, collector);
+            ScoreDoc[] hits = collector.topDocs().scoreDocs;
+
+            // display results
+            response.append("Found ").append(hits.length).append(" entries.<ul>");
+            for (int i = 0; i < hits.length; ++i) {
+                int docId = hits[i].doc;
+                Document d = searcher.doc(docId);
+                response.append("<li>").append(i + 1).append(". [")
+                        .append(d.get("id")).append("] ")
+                        .append(d.get("title")).append(" (<a href=\"magnet:?xt=urn:btih:")
+                        .append(d.get("magnet")).append("\">Download!</a>)</li>");
+            }
+            response.append("</ul>");
+            reader.close();
+        }
+        catch (Exception ex) {
+            System.err.println("[QUERY] Failed to search index (Peer: " + self.getPeerId() + ", Partition: " + getPartitionID(self) + ")!");
+        }
+        return response.toString();
+    }
+    
+    private ArrayList<Entry> query(String searchQuery) {
+        ArrayList<Entry> searchResult = new ArrayList<Entry>();
+        try {
+            if (index.listAll().length > 0) {
+                Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(searchQuery);
+                IndexSearcher searcher;
+                IndexReader reader;
+                reader = DirectoryReader.open(index);
+                searcher = new IndexSearcher(reader);
+
+                int hitsPerPage = 1000;
+                TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
+
+                searcher.search(q, collector);
+                ScoreDoc[] hits = collector.topDocs().scoreDocs;
+
+                for (int i = 0; i < hits.length; ++i) {
+                    int docId = hits[i].doc;
+                    Document d = searcher.doc(docId);
+                    searchResult.add(new Entry(d.get("id"), d.get("title"), d.get("magnet")));
+                }
+                reader.close();
+            }
+        } catch (Exception ex) {
+            System.err.println("[QUERY] Failed to search index (Peer: " + self.getPeerId() + ", Partition: " + getPartitionID(self) + ")!");
+        }
+        return searchResult;
+    }
+
     private String query(StringBuilder sb, String querystr) throws ParseException, IOException {
         // Check if index has any entries first to avoid exception from Lucene when creating the reader.
         if(index.listAll().length > 0) {
@@ -674,8 +796,8 @@ public final class Search extends ComponentDefinition {
         try {
             if (index.listAll().length > 0) {
                 Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse("AXD");
-                IndexSearcher searcher = null;
-                IndexReader reader = null;
+                IndexSearcher searcher;
+                IndexReader reader;
 
                 reader = DirectoryReader.open(index);
                 searcher = new IndexSearcher(reader);
