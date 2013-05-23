@@ -149,6 +149,16 @@ public final class Search extends ComponentDefinition {
     }
     
     /**
+     * Calculates the partition to which a new entry should be stored to.
+     * 
+     * @param entry The entry for which we need to calculate the storing partition.
+     * @return An integer representing the partition to store the entry in.
+     */
+    private int getEntryPartition(Entry entry) {
+        return Math.abs(entry.getTitle().hashCode()%5);
+    }
+    
+    /**
      * Calculates the partition ID for a node based on its ID and the required number of partitions.
      * 
      * @param peer The peer for which we are calculating the partition ID.
