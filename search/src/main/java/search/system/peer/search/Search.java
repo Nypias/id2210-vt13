@@ -145,7 +145,7 @@ public final class Search extends ComponentDefinition {
                 }
             }
         }
-        System.err.println("[SEARCH::" + self.getPeerId() + "::" + getPartitionID(self) + "] " + routingTable);
+//        System.err.println("[SEARCH::" + self.getPeerId() + "::" + getPartitionID(self) + "] " + routingTable);
     }
     
     /**
@@ -254,14 +254,18 @@ public final class Search extends ComponentDefinition {
     };
     
     private void handleNewEntry(Entry entry) {
+        int newEntryPartition = getEntryPartition(entry);
         PeerAddress targetPeer;
-        if(leader != null) {
-            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to the leader (" + leader.getPeerId() + ")");
-            targetPeer = leader;
-        }
-        else {
-            targetPeer = getSoftMaxAddress(tmanPartners);
-            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Forwarding new entry to the leader through " + targetPeer.getPeerId());
+        if (newEntryPartition == getPartitionID(self)) {
+            if (leader != null) {
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to the leader (" + leader.getPeerId() + ")");
+                targetPeer = leader;
+            } else {
+                targetPeer = getSoftMaxAddress(tmanPartners);
+                System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Forwarding new entry to the leader through " + targetPeer.getPeerId());
+            }
+        } else {
+            targetPeer = routingTable.get(newEntryPartition).get(r.nextInt(JRConfig.NUMBER_OF_PARTITION_LINKS - 1));
         }
         trigger(new ForwardEntryToLeader(self, targetPeer, self, entry, 0), networkPort);
     }
