@@ -273,7 +273,7 @@ public final class Search extends ComponentDefinition {
     Handler<ForwardEntryToLeader> handleAddEntryToLeader = new Handler<ForwardEntryToLeader>() {
         @Override
         public void handle(ForwardEntryToLeader event) {
-//            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got forward message from " + event.getPeerSource().getPeerId());
+            System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Got forward message from " + event.getPeerSource().getPeerId());
             if(leader != null) {
                 if(self.getPeerId().equals(leader.getPeerId())) {
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] I am the leader and I received a new entry!");

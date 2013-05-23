@@ -202,6 +202,9 @@ public final class TMan extends ComponentDefinition
         @Override
         public void handle(LeaderDeadMessage event) {
             electing = true;
+            if (tmanPartners.contains(leader)) {
+            	tmanPartners.remove(leader);
+            }
             leader = null;
             
             CancelTimeout ct = new CancelTimeout(heartbeatTimeoutId);
@@ -628,6 +631,7 @@ public final class TMan extends ComponentDefinition
      */
     private void startLeaderReelection() {
         electionGroup.remove(leader);
+        tmanPartners.remove(leader);
         leader = null;
         electing = true;
         if (self.getPeerId().equals(maximumUtility(electionGroup))) {
