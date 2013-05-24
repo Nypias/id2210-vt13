@@ -113,7 +113,7 @@ public final class Search extends ComponentDefinition {
         subscribe(handleSearchPartitionRequest, networkPort);
         subscribe(handleSearchPartitionResponse, networkPort);
     }
-//-------------------------------------------------------------------	
+//-------------------------------------------------------------------	w
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
         @Override
         public void handle(SearchInit init) {
@@ -252,6 +252,10 @@ public final class Search extends ComponentDefinition {
                 Stats.reportIndexDisseminationStats();
                 response = new WebResponse("Reported index dissemination statistics!", event, 1, 1);
                 trigger(response, webPort);
+            } else if (args[0].compareToIgnoreCase("reportLoad") == 0) {
+                Stats.reportPartitionIndexLoad();
+                response = new WebResponse("Reported partition index load!", event, 1, 1);
+                trigger(response, webPort);
             }
             else {
                 response = new WebResponse(searchPageHtml(event.getTarget()), event, 1, 1);
@@ -346,6 +350,7 @@ public final class Search extends ComponentDefinition {
                     System.err.println("[NEW_ENTRY::" + self.getPeerId() + "] Sending new entry to " + tmanPartners);
                     
                     Stats.registerLeaderSearchStats(event.getHops() + 1);
+                    Stats.registerPartitionIndexLoad(getPartitionID(self), countIndexEntries(index));
                     
                     Entry newEntry = event.getNewEntry();
                     String tempID = newEntry.getId();

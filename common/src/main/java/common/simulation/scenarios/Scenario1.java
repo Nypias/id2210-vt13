@@ -29,7 +29,7 @@ public class Scenario1 extends Scenario
             StochasticProcess process3 = new StochasticProcess()
             {
                 {
-                    eventInterArrivalTime(constant(100));
+                    eventInterArrivalTime(constant(JRConfig.NEW_ENTRY_DELAY));
                     raise(JRConfig.NUMBER_OF_INDEX_ENTRIES, Operations.addIndexEntry(), uniform(13));
                 }
             };
@@ -43,7 +43,7 @@ public class Scenario1 extends Scenario
 
             process1.start();
             process2.startAfterTerminationOf(2000, process1);
-//            process3.startAfterTerminationOf(MINUTE, process2);
+            process3.startAfterTerminationOf(2 * MINUTE, process2);
 //            process4.startAfterStartOf(10000, process3);
         }
     };

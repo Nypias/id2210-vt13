@@ -2,6 +2,8 @@ package common.simulation;
 
 import common.peer.PeerAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 
 /**
@@ -16,6 +18,7 @@ public class Stats
     private static int electionMessages = 0;
     private static ArrayList<Integer> leaderSearchStats = new ArrayList<Integer>();
     private static ArrayList<Integer> indexDissemninationStats = new ArrayList<Integer>();
+    private static Map<Integer, Integer> partitionLoadBalancingStats = new HashMap<Integer, Integer>();
 
     // Election Statistics
     public synchronized static void registerElectionMessage() {
@@ -62,6 +65,16 @@ public class Stats
         } else {
             System.err.println("[STATS] Index dissemination is not complete yet (" + indexDissemninationStats.size() + " / " + NUMBER_OF_PEERS + ")!");
         }
+    }
+    
+    // Partition index load balancing statistics
+    public synchronized static void registerPartitionIndexLoad(int partitionID, int indexCount) {
+        partitionLoadBalancingStats.put(partitionID, indexCount);
+    }
+    
+    public synchronized static void reportPartitionIndexLoad() {
+        System.err.println("Partition Load Balancing");
+        System.err.println(partitionLoadBalancingStats);
     }
     
     // Leader reporting

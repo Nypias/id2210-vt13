@@ -13,7 +13,11 @@ public class JRConfig
      * The number of entries to add to the system after all nodes have started
      * up.
      */
-    public static final int NUMBER_OF_INDEX_ENTRIES = 500;
+    public static final int NUMBER_OF_INDEX_ENTRIES = 1000;
+    /** 
+     * Interval of entries addition.
+     */
+    public static final int NEW_ENTRY_DELAY = 1000;
     /**
      * The size of the similarity list in TMan component.
      */
