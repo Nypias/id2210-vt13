@@ -33,6 +33,12 @@ public class SearchPartitionTimeout extends Timeout
         this.pendingSearchID = pendingSearchID;
     }
 
+    /**
+     * Get the ID of the pending search sent by the node performing the
+     * search operation
+     * 
+     * @return An Integer representing the ID of the search operation.
+     */
     public Integer getPendingSearchID() {
         return pendingSearchID;
     }
